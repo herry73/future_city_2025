@@ -42,14 +42,37 @@ def air_quality_page(df):
 
     sensor = st.selectbox("Choose pollutant", ["NO2", "O3", "PM10"])
 
-    # Summary KPIs
-    col1, col2, col3 = st.columns(3)
+    
+    default_threshold = float(df_range[sensor].quantile(0.8)) 
+    threshold = st.slider(
+        f"{sensor} alert threshold",
+        float(df_range[sensor].min()),
+        float(df_range[sensor].max()),
+        value=default_threshold,
+    )
+
+    above = df_range[df_range[sensor] > threshold]
+    hours_above = above.shape[0]
+
+    
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Average", f"{df_range[sensor].mean():.1f}")
     col2.metric("Max", f"{df_range[sensor].max():.1f}")
     col3.metric("Min", f"{df_range[sensor].min():.1f}")
+    col4.metric("Hours above threshold", hours_above)
 
-    fig = ts_plot(df_range, sensor, f"{sensor} over time")
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    df_range[sensor].plot(ax=ax)
+    ax.axhline(threshold, linestyle="--") 
+    ax.set_title(f"{sensor} over time (dashed = threshold)")
+    ax.set_xlabel("Time")
+    ax.set_ylabel(sensor)
+    fig.tight_layout()
     st.pyplot(fig)
+
+    st.caption("Later we’ll set this threshold based on city regulations / health limits.")
+
 
 
 def heatwave_page(df):
@@ -67,6 +90,8 @@ def heatwave_page(df):
     st.pyplot(fig)
 
 
+from plots import ts_plot, corr_heatmap, hourly_pattern_bar
+
 def noise_page(df):
     st.header("Event & Noise Monitoring")
 
@@ -78,8 +103,14 @@ def noise_page(df):
     col2.metric("Max dB", f"{df_range[sensor].max():.1f}")
     col3.metric("Min dB", f"{df_range[sensor].min():.1f}")
 
+    st.subheader("Noise over time")
     fig = ts_plot(df_range, sensor, "Noise level over time")
     st.pyplot(fig)
+
+    st.subheader("Average noise by hour of day")
+    fig2 = hourly_pattern_bar(df_range, sensor, "Average noise by hour")
+    st.pyplot(fig2)
+
 
 
 def insights_page(df):
