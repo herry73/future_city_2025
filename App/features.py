@@ -203,6 +203,7 @@ def detect_night_noise_events(
     return df, events
 
 
+
 # 3) TREE PRIORITY SCORE  ----------------------------------------------------
 
 def compute_tree_priority(

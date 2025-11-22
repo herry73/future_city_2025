@@ -144,6 +144,7 @@ def main():
         insights_page(df)
 
 
+
 if __name__ == "__main__":
     main()
     
