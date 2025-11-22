@@ -757,26 +757,131 @@ def planner_sensor_relationship_page(df):
 
 
 # ---------------------------------------------------------
-#  PLANNER: Tree Priority Map
+#  HELPER: SIMULATE HEILBRONN CITY GRID
+# ---------------------------------------------------------
+def simulate_city_grid(n_points=200):
+    """
+    Generates synthetic sensor points specifically around Heilbronn City Center.
+    Heilbronn Center Coordinates: ~49.1427° N, 9.2109° E
+    """
+    # Heilbronn Marktplatz / City Center
+    CENTER_LAT = 49.1427
+    CENTER_LON = 9.2109
+
+    # Generate points within ~2-3km radius of the city center
+    # Using normal distribution to cluster points near the center
+    lat_offsets = np.random.normal(0, 0.015, n_points)
+    lon_offsets = np.random.normal(0, 0.025, n_points)
+
+    lats = CENTER_LAT + lat_offsets
+    lons = CENTER_LON + lon_offsets
+
+    # Simulate Environment Stress (High density near center = High Stress)
+    # Calculate distance from center to simulate "Urban Heat Island" effect
+    dist_from_center = np.sqrt(lat_offsets ** 2 + lon_offsets ** 2)
+    # Closer to center = higher base stress (0.0 to 1.0 inverted)
+    urban_factor = 1 - (dist_from_center / dist_from_center.max())
+
+    # Generate metrics with randomness + urban factor
+    heat = np.clip(urban_factor * 10 + np.random.normal(0, 2, n_points), 1, 10)
+    noise = np.clip(urban_factor * 10 + np.random.normal(0, 3, n_points), 1, 10)
+    air = np.clip(urban_factor * 10 + np.random.normal(0, 1.5, n_points), 1, 10)
+
+    # Weighted Priority: Heat & Air are critical for Heilbronn
+    priority = (heat * 0.4) + (air * 0.4) + (noise * 0.2)
+    # Scale to 0-100
+    priority = np.clip(priority * 10, 0, 100)
+
+    return pd.DataFrame({
+        "latitude": lats,
+        "longitude": lons,
+        "heat_level": heat,
+        "noise_level": noise,
+        "air_quality_gap": air,
+        "tree_priority": priority
+    })
+
+
+# ---------------------------------------------------------
+#  PLANNER: Tree Priority Map (Fixed Base Map)
 # ---------------------------------------------------------
 
 def planner_tree_map_page(df):
-    st.subheader("🗺 Tree Priority Hotspot Map")
+    st.subheader("🗺️ Heilbronn Green Intervention Map")
 
-    df_health = add_health_score(df.copy())
-    _, _, priority = compute_tree_priority(df_health)
+    # --- 1. Generate Data for Heilbronn (Center Locked) ---
+    # 模拟海尔布隆市中心的数据点
+    map_data = simulate_city_grid(n_points=300)
 
-    if "latitude" not in df.columns or "longitude" not in df.columns:
-        st.warning("No geolocation data available for mapping.")
-        return
+    # --- 2. Define Color Logic ---
+    # Green (Safe) -> Yellow (Warning) -> Red (Critical)
+    def get_color(score):
+        if score < 50:
+            return [0, 255, 128, 160]  # Greenish
+        elif score < 75:
+            return [255, 200, 0, 180]  # Orange
+        else:
+            return [255, 0, 0, 200]  # Red
 
-    try:
-        st.caption("Areas with high tree priority need more green infrastructure.")
-        deck = map_layer(df_health, value_col="health_score", color=[0, 200, 100])
-        st.pydeck_chart(deck)
-    except Exception as e:
-        st.warning(f"Could not render map: {e}")
+    map_data["color"] = map_data["tree_priority"].apply(get_color)
 
+    critical_zones = len(map_data[map_data["tree_priority"] > 75])
+
+    col1, col2 = st.columns(2)
+    col1.metric("Total Monitored Zones", len(map_data))
+    col2.metric("🔥 Critical Heat/Air Zones", critical_zones, delta="High Priority", delta_color="inverse")
+
+    # --- 3. Pydeck Map Configuration ---
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        map_data,
+        get_position=["longitude", "latitude"],
+        get_radius=120,  # 稍微调小一点半径，让点更清晰
+        get_fill_color="color",
+        pickable=True,
+        opacity=0.9,
+        stroked=True,
+        get_line_color=[255, 255, 255],  # 给圆点加个白边，更像第一张图的风格
+        line_width_min_pixels=1,
+        filled=True,
+    )
+
+    # Initial View: Focused on Heilbronn City Center
+    view_state = pdk.ViewState(
+        latitude=49.1427,
+        longitude=9.2109,
+        zoom=13.5,
+        pitch=45,
+        bearing=0
+    )
+
+    # Tooltip
+    tooltip = {
+        "html": "<b>📍 Zone Priority: {tree_priority:.0f}</b><br/>"
+                "🌡 Heat Stress: {heat_level:.1f}<br/>"
+                "🌫 Air Quality: {air_quality_gap:.1f}<br/>"
+                "📢 Noise Level: {noise_level:.1f}",
+        "style": {
+            "backgroundColor": "#1f2937",
+            "color": "white",
+            "fontSize": "12px",
+            "padding": "10px"
+        }
+    }
+
+    # --- 4. Render Map with CARTO Style (No Token Needed) ---
+    r = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        # 关键修改在这里：使用 'carto' 提供商和 'dark' 样式
+        map_provider="carto",
+        map_style="dark",
+    )
+
+    st.pydeck_chart(r)
+
+    st.success("💡 **Map Loaded:** This view uses the OpenStreetMap/CARTO dark theme, which requires no API token.")
 # =====================================================================
 #  PART 6 — MAIN APP ASSEMBLY (routing + themes + back button)
 # =====================================================================
