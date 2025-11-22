@@ -638,7 +638,145 @@ def controller_incident_map_page(df_health):
 # =====================================================================
 #  PART 5 — CITY PLANNER DASHBOARD (eco theme, long-term planning)
 # =====================================================================
+# =====================================================================
+#  【新增】 HELPER: SIMULATE NOISE BY HOUR (TEMPORAL LOGIC)
+# =====================================================================
+def simulate_hourly_noise_data(hour, n_points=400):
+    """
+    Generates noise data for Heilbronn based on the time of day.
+    """
+    # Heilbronn Center
+    CENTER_LAT = 49.1427
+    CENTER_LON = 9.2109
 
+    # Generate base grid
+    lat_offsets = np.random.normal(0, 0.015, n_points)
+    lon_offsets = np.random.normal(0, 0.025, n_points)
+    lats = CENTER_LAT + lat_offsets
+    lons = CENTER_LON + lon_offsets
+
+    # Calculate distance from center
+    dists = np.sqrt(lat_offsets ** 2 + lon_offsets ** 2)
+    urban_density = 1 - (dists / dists.max())
+
+    # Base Noise
+    base_noise = np.clip(urban_density * 60 + np.random.normal(0, 5, n_points), 30, 70)
+
+    # --- TIME TRAVELLER LOGIC ---
+    final_noise = base_noise.copy()
+    scenario = "Normal"
+
+    if hour == 9:
+        final_noise += 15
+        scenario = "🚗 Morning Rush Hour"
+    elif hour == 12:
+        final_noise += (urban_density * 20)
+        scenario = "🍽️ City Center Bustle"
+    elif hour == 15:
+        final_noise += 10
+        scenario = "🚌 Afternoon Activity"
+    elif hour == 0 or hour == 24:
+        final_noise -= 20
+        # Nightlife hotspots
+        nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.05), replace=False)
+        final_noise[nightlife_indices] = 85
+        scenario = "🌙 Midnight (Mostly Quiet)"
+
+    final_noise = np.clip(final_noise, 30, 95)
+
+    return pd.DataFrame({
+        "latitude": lats,
+        "longitude": lons,
+        "noise_db": final_noise
+    }), scenario
+
+
+# =====================================================================
+#  【新增】 PLANNER: Noise Time-Travel Map Page
+# =====================================================================
+def planner_noise_time_travel_page():
+    st.subheader("⏳ Temporal Noise Map (Time Travel)")
+
+    st.markdown("Use the slider to see how Heilbronn's soundscape changes throughout the day.")
+
+    # 1. Time Selector
+    time_options = {
+        "09:00": 9,
+        "12:00": 12,
+        "15:00": 15,
+        "00:00 (Midnight)": 0
+    }
+
+    selected_label = st.select_slider(
+        "Select Time of Day",
+        options=list(time_options.keys()),
+        value="12:00"
+    )
+
+    selected_hour = time_options[selected_label]
+
+    # 2. Get Data
+    map_data, scenario_desc = simulate_hourly_noise_data(selected_hour, n_points=500)
+
+    # Display KPI
+    avg_noise = map_data["noise_db"].mean()
+    col1, col2 = st.columns(2)
+    col1.metric("Scenario", scenario_desc)
+    col1.metric("City Average Noise", f"{avg_noise:.1f} dB")
+
+    # 3. Color Logic
+    def get_noise_color(db):
+        if db < 50:
+            return [0, 255, 128, 140]  # Quiet (Green)
+        elif db < 70:
+            return [255, 200, 0, 160]  # Moderate (Yellow)
+        else:
+            return [255, 0, 0, 200]  # Loud (Red)
+
+    map_data["color"] = map_data["noise_db"].apply(get_noise_color)
+    map_data = map_data.round({"latitude": 4, "longitude": 4, "noise_db": 1})
+
+    # 4. Map Config
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        map_data,
+        get_position=["longitude", "latitude"],
+        get_radius=100,
+        get_fill_color="color",
+        pickable=True,
+        opacity=0.8,
+        stroked=True,
+        get_line_color=[255, 255, 255],
+        line_width_min_pixels=1,
+        filled=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=49.1427,
+        longitude=9.2109,
+        zoom=13,
+        pitch=45
+    )
+
+    tooltip = {
+        "html": "<b>🔊 Noise Level: {noise_db} dB</b><br/>"
+                "🕒 Time: " + selected_label + "<br/>"
+                                              "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
+                                              "🌐 Lat: {latitude}<br/>"
+                                              "🌐 Lon: {longitude}",
+        "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px",
+                  "zIndex": "9999"}
+    }
+
+    r = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_provider="carto",
+        map_style="dark",
+    )
+
+    st.pydeck_chart(r)
 def planner_dashboard(df):
     apply_planner_theme()
 
@@ -652,7 +790,8 @@ def planner_dashboard(df):
             "Correlation Analysis",
             "Tree Priority & Chronic Stress",
             "Sensor Relationship Explorer",
-            "Tree Priority Map"
+            "Tree Priority Map",
+            "Noise Time-Travel Map"  # <--- 菜单里要有这个
         ],
         key="planner_nav"
     )
@@ -667,8 +806,10 @@ def planner_dashboard(df):
         planner_sensor_relationship_page(df)
     elif page == "Tree Priority Map":
         planner_tree_map_page(df)
-
-
+    elif page == "Noise Time-Travel Map":
+        # 这一行调用上面的函数
+        # 如果没有把第1步的代码放进去，这里就会报错
+        planner_noise_time_travel_page()
 # ---------------------------------------------------------
 #  PLANNER: Overview Page
 # ---------------------------------------------------------
@@ -832,6 +973,66 @@ def simulate_city_grid(n_points=200):
 
 
 # ---------------------------------------------------------
+#  HELPER: SIMULATE NOISE BY HOUR (TEMPORAL LOGIC)
+# ---------------------------------------------------------
+def simulate_hourly_noise_data(hour, n_points=400):
+    """
+    Generates noise data for Heilbronn based on the time of day.
+    Logic:
+    - 09:00: High traffic noise on main roads (Morning Rush).
+    - 12:00: High activity in city center (Lunch/Shops).
+    - 15:00: Moderate traffic + School run.
+    - 00:00: Generally quiet, but some hotspots (Bars/Clubs).
+    """
+    # Heilbronn Center
+    CENTER_LAT = 49.1427
+    CENTER_LON = 9.2109
+
+    # Generate base grid
+    lat_offsets = np.random.normal(0, 0.015, n_points)
+    lon_offsets = np.random.normal(0, 0.025, n_points)
+    lats = CENTER_LAT + lat_offsets
+    lons = CENTER_LON + lon_offsets
+
+    # Calculate distance from center (0.0 to 1.0)
+    dists = np.sqrt(lat_offsets ** 2 + lon_offsets ** 2)
+    urban_density = 1 - (dists / dists.max())  # 1 = Center, 0 = Outskirts
+
+    # Base Noise (random base)
+    base_noise = np.clip(urban_density * 60 + np.random.normal(0, 5, n_points), 30, 70)
+
+    # --- TIME TRAVELLER LOGIC ---
+    final_noise = base_noise.copy()
+
+    if hour == 9:
+        # Morning Rush: Traffic is loud everywhere, especially slightly away from center (arterial roads)
+        final_noise += 15
+        scenario = "🚗 Morning Rush Hour"
+    elif hour == 12:
+        # Lunch: Center is very loud (people), outskirts quieter
+        final_noise += (urban_density * 20)
+        scenario = "🍽️ City Center Bustle"
+    elif hour == 15:
+        # Afternoon: Mixed noise
+        final_noise += 10
+        scenario = "🚌 Afternoon Activity"
+    elif hour == 0 or hour == 24:
+        # Midnight: Drop significantly (-20dB), but keep random 'Nightlife' spikes
+        final_noise -= 20
+        # Add random 'Nightlife' hotspots (e.g., bars) that stay loud
+        nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.05), replace=False)
+        final_noise[nightlife_indices] = 85  # Specific loud spots
+        scenario = "🌙 Midnight (Mostly Quiet)"
+
+    # Clip to realistic dB range
+    final_noise = np.clip(final_noise, 30, 95)
+
+    return pd.DataFrame({
+        "latitude": lats,
+        "longitude": lons,
+        "noise_db": final_noise
+    }), scenario
+# ---------------------------------------------------------
 #  PLANNER: Tree Priority Map (Fixed Number Formatting)
 # ---------------------------------------------------------
 
@@ -922,6 +1123,103 @@ def planner_tree_map_page(df):
     st.pydeck_chart(r)
 
     st.success("💡 **Map Updated:** Coordinates and metrics are now displayed correctly.")
+
+    # ---------------------------------------------------------
+    #  PLANNER: Noise Time-Travel Map
+    # ---------------------------------------------------------
+    def planner_noise_time_travel_page():
+        st.subheader("⏳ Temporal Noise Map (Time Travel)")
+
+        st.markdown("Use the slider to see how Heilbronn's soundscape changes throughout the day.")
+
+        # 1. Time Selector
+        time_options = {
+            "09:00": 9,
+            "12:00": 12,
+            "15:00": 15,
+            "00:00 (Midnight)": 0
+        }
+
+        selected_label = st.select_slider(
+            "Select Time of Day",
+            options=list(time_options.keys()),
+            value="12:00"
+        )
+
+        selected_hour = time_options[selected_label]
+
+        # 2. Get Data
+        map_data, scenario_desc = simulate_hourly_noise_data(selected_hour, n_points=500)
+
+        # Display KPI
+        avg_noise = map_data["noise_db"].mean()
+        col1, col2 = st.columns(2)
+        col1.metric("Scenario", scenario_desc)
+        col1.caption(f"Current City Average: {avg_noise:.1f} dB")
+
+        # 3. Color Logic (Green < 50dB, Yellow 50-70, Red > 70)
+        def get_noise_color(db):
+            if db < 50:
+                return [0, 255, 128, 140]  # Quiet (Green)
+            elif db < 70:
+                return [255, 200, 0, 160]  # Moderate (Yellow)
+            else:
+                return [255, 0, 0, 200]  # Loud (Red)
+
+        map_data["color"] = map_data["noise_db"].apply(get_noise_color)
+
+        # Round for tooltip
+        map_data = map_data.round({"latitude": 4, "longitude": 4, "noise_db": 1})
+
+        # 4. Map Config
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            map_data,
+            get_position=["longitude", "latitude"],
+            get_radius=100,
+            get_fill_color="color",
+            pickable=True,
+            opacity=0.8,
+            stroked=True,
+            get_line_color=[255, 255, 255],
+            line_width_min_pixels=1,
+            filled=True,
+        )
+
+        view_state = pdk.ViewState(
+            latitude=49.1427,
+            longitude=9.2109,
+            zoom=13,
+            pitch=45
+        )
+
+        tooltip = {
+            "html": "<b>🔊 Noise Level: {noise_db} dB</b><br/>"
+                    "🕒 Time: " + selected_label + "<br/>"
+                                                  "<hr/>"
+                                                  "🌐 Lat: {latitude}<br/>"
+                                                  "🌐 Lon: {longitude}",
+            "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px"}
+        }
+
+        r = pdk.Deck(
+            layers=[layer],
+            initial_view_state=view_state,
+            tooltip=tooltip,
+            map_provider="carto",
+            map_style="dark",
+        )
+
+        st.pydeck_chart(r)
+
+        # 5. Legend / Interpretation
+        if selected_hour == 0:
+            st.info(
+                "💡 **Midnight Insight:** Notice the city is mostly green (quiet), but specific red dots remain. These are simulated nightlife hotspots or 24/7 industrial zones.")
+        elif selected_hour == 9:
+            st.warning("💡 **Morning Insight:** High noise levels along commuter routes (Traffic).")
+
+
 # =====================================================================
 #  PART 6 — MAIN APP ASSEMBLY (patched for rerun & clean routing)
 # =====================================================================
