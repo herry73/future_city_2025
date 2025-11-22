@@ -744,6 +744,7 @@ def planner_noise_time_travel_page():
     col1.metric("Scenario", scenario_desc)
     col1.metric("City Average Noise", f"{avg_noise:.1f} dB")
 
+
     # 3. Color Logic
     def get_noise_color(db):
         if db < 50:
