@@ -60,64 +60,193 @@ PLANNER = {
 def apply_resident_theme():
     st.markdown(f"""
     <style>
-        body {{
-            background-color: {PASTEL['bg']} !important;
-            color: {PASTEL['text']} !important;
-        }}
-        .stMetricValue, .stMetricLabel {{
-            color: {PASTEL['text']} !important;
-        }}
-        .stButton>button {{
-            background-color: {PASTEL['accent']} !important;
-            color: white !important;
-            border-radius: 10px;
-            border: none;
-        }}
-        .stTab {{
-            color: {PASTEL['text']} !important;
-        }}
+
+    /* MAIN BACKGROUND */
+    [data-testid="stAppViewContainer"] {{
+        background-color: {PASTEL['bg']} !important;
+        color: {PASTEL['text']} !important;
+    }}
+
+    /* SIDEBAR */
+    [data-testid="stSidebar"] {{
+        background-color: #F7FAFF !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: {PASTEL['text']} !important;
+    }}
+
+    /* HEADINGS */
+    h1, h2, h3, h4, h5, h6 {{
+        color: {PASTEL['text']} !important;
+        font-weight: 700 !important;
+    }}
+
+    /* INPUT WIDGETS */
+    .stTextInput input, 
+    .stDateInput input, 
+    .stSelectbox div[role='combobox'] {{
+        background-color: white !important;
+        color: {PASTEL['text']} !important;
+        border-radius: 8px;
+        border: 1px solid #BFD7FF !important;
+    }}
+
+    /* TABLES */
+    .stDataFrame table, .stDataFrame th, .stDataFrame td {{
+        color: {PASTEL['text']} !important;
+        background-color: white !important;
+    }}
+
+    /* BUTTONS */
+    .stButton>button {{
+        background-color: {PASTEL['accent']} !important;
+        color: white !important;
+        border-radius: 8px !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }}
+
+    /* METRIC CARDS */
+    [data-testid="stMetric"] {{
+        background-color: white !important;
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid #D7E6FF;
+    }}
+    [data-testid="stMetric"] * {{
+        color: {PASTEL['text']} !important;
+    }}
+
     </style>
     """, unsafe_allow_html=True)
+
 
 
 
 def apply_controller_theme():
     st.markdown(f"""
     <style>
-        body {{
-            background-color: {DARK_NEON['bg']} !important;
-            color: {DARK_NEON['text']} !important;
-        }}
-        .stMetricValue, .stMetricLabel {{
-            color: {DARK_NEON['text']} !important;
-        }}
-        .stButton>button {{
-            background-color: {DARK_NEON['accent']} !important;
-            color: white !important;
-            border-radius: 10px;
-            border: none;
-        }}
+
+    [data-testid="stAppViewContainer"] {{
+        background-color: {DARK_NEON['bg']} !important;
+        color: {DARK_NEON['text']} !important;
+    }}
+
+    [data-testid="stSidebar"] {{
+        background-color: #111624 !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: {DARK_NEON['text']} !important;
+    }}
+
+    h1, h2, h3, h4, h5, h6 {{
+        color: {DARK_NEON['text']} !important;
+    }}
+
+    .stTextInput input, 
+    .stDateInput input, 
+    .stSelectbox div[role='combobox'] {{
+        background-color: #1A2238 !important;
+        color: {DARK_NEON['text']} !important;
+        border-radius: 8px;
+        border: 1px solid #33415C !important;
+    }}
+
+    .stButton>button {{
+        background-color: {DARK_NEON['accent']} !important;
+        color: white !important;
+        border-radius: 8px !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }}
+
+    [data-testid="stMetric"] {{
+        background-color: #1A2238 !important;
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid #33415C;
+    }}
+    [data-testid="stMetric"] * {{
+        color: {DARK_NEON['text']} !important;
+    }}
+
     </style>
     """, unsafe_allow_html=True)
+
 
 
 
 def apply_planner_theme():
     st.markdown(f"""
     <style>
-        body {{
-            background-color: {PLANNER['bg']} !important;
-            color: {PLANNER['text']} !important;
-        }}
-        .stMetricValue, .stMetricLabel {{
-            color: {PLANNER['text']} !important;
-        }}
-        .stButton>button {{
-            background-color: {PLANNER['accent']} !important;
-            color: white !important;
-            border-radius: 10px;
-            border: none;
-        }}
+
+    /* MAIN BACKGROUND */
+    [data-testid="stAppViewContainer"] {{
+        background-color: {PLANNER['bg']} !important;
+        color: {PLANNER['text']} !important;
+    }}
+
+    /* SIDEBAR */
+    [data-testid="stSidebar"] {{
+        background-color: #F1F8F4 !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: {PLANNER['text']} !important;
+    }}
+
+    /* HEADERS */
+    h1, h2, h3, h4, h5, h6 {{
+        color: {PLANNER['text']} !important;
+        font-weight: 700 !important;
+    }}
+
+    /* INPUT WIDGETS */
+    .stTextInput input, 
+    .stDateInput input, 
+    .stSelectbox div[role='combobox'] {{
+        background-color: white !important;
+        color: {PLANNER['text']} !important;
+        border-radius: 8px;
+        border: 1px solid #A5D6A7 !important;
+    }}
+
+    /* TABLES */
+    .stDataFrame table, .stDataFrame th, .stDataFrame td {{
+        color: {PLANNER['text']} !important;
+        background-color: white !important;
+    }}
+
+    /* BUTTONS */
+    .stButton>button {{
+        background-color: {PLANNER['accent']} !important;
+        color: white !important;
+        border-radius: 8px !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }}
+
+    /* METRIC CARDS */
+    [data-testid="stMetric"] {{
+        background-color: white !important;
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid #C8E6C9;
+    }}
+    [data-testid="stMetric"] * {{
+        color: {PLANNER['text']} !important;
+    }}
+
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def fix_label_colors():
+    st.markdown("""
+    <style>
+    label, .stDateInput label, .stTextInput label, .stSelectbox label {
+        color: #1A1A1A !important;
+        font-weight: 600 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -451,6 +580,7 @@ def resident_noise_panel(df):
 
 def resident_dashboard(df):
     apply_resident_theme()
+    fix_label_colors()
 
     st.title("👤 Resident View — How is the city today?")
 
@@ -490,6 +620,7 @@ def resident_dashboard(df):
 
 def controller_dashboard(df):
     apply_controller_theme()
+    fix_label_colors()
 
     st.title("🚨 Smart City Control Hub")
 
@@ -779,6 +910,7 @@ def planner_noise_time_travel_page():
     st.pydeck_chart(r)
 def planner_dashboard(df):
     apply_planner_theme()
+    fix_label_colors()
 
     st.title("🏙 City Planner Dashboard")
 
