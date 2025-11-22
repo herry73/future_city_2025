@@ -263,16 +263,16 @@ def init_session_state():
 
 # ---------- PATCH: proper rerun-safe callbacks ----------
 
-def set_role(role):
-    """Instantly update role and rerun app."""
-    st.session_state.role = role
-    st.rerun()
+# def set_role(role):
+#     """Instantly update role and rerun app."""
+#     st.session_state.role = role
+#     st.rerun()
 
 
-def reset_role():
-    """Reset the role and rerun to landing page."""
-    st.session_state.role = None
-    st.rerun()
+# def reset_role():
+#     """Reset the role and rerun to landing page."""
+#     st.session_state.role = None
+#     st.rerun()
 
 
 # --------------------------------------------------------
@@ -280,13 +280,10 @@ def reset_role():
 def role_card(title, emoji, description, role_key, bg_color, text_color):
     """Clickable card used on landing page."""
 
-    # Button (patched to use callback instead of state check)
-    st.button(
-        f"{emoji}  {title}",
-        key=f"role_btn_{role_key}",
-        use_container_width=True,
-        on_click=lambda r=role_key: set_role(r)
-    )
+    # Button (safe click)
+    if st.button(f"{emoji}  {title}", key=f"role_btn_{role_key}", use_container_width=True):
+        st.session_state.role = role_key
+        st.rerun()
 
     # Description box below each button
     st.markdown(
@@ -305,6 +302,7 @@ def role_card(title, emoji, description, role_key, bg_color, text_color):
         """,
         unsafe_allow_html=True
     )
+
 
 
 def landing_page():
@@ -950,7 +948,11 @@ def main():
     st.sidebar.markdown(f"**Active Role:** `{st.session_state.role.capitalize()}`")
 
     # ---------- PATCH: back button uses callback ----------
-    st.sidebar.button("⬅ Back to Role Selection", on_click=reset_role)
+    if st.sidebar.button("⬅ Back to Role Selection"):
+        st.session_state.role = None
+        st.rerun()
+
+        
     st.sidebar.markdown("---")
 
     # Route to dashboards
