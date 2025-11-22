@@ -25,30 +25,32 @@ from features import (
 # ---------------------------------------------------------
 
 PASTEL = {
-    "bg": "#F7F9FC",
-    "text": "#3A506B",
-    "primary": "#6BB6FF",
-    "card": "#FFFFFF",
-    "accent": "#8EC6FF"
+    "bg": "#F2F6FF",        # soft blue pastel, readable
+    "text": "#1F2A44",      # deep navy for contrast
+    "card": "#FFFFFF",      # white cards
+    "accent": "#6BA8FF",    # soft blue accents
+    "primary": "#4C84E0",   # stronger blue for graphs
 }
+
 
 DARK_NEON = {
-    "bg": "#0D1117",
-    "text": "#C9D1D9",
-    "primary": "#58A6FF",
-    "card": "#161B22",
-    "accent": "#1F6FEB",
-    "danger": "#F85149",
+    "bg": "#0A0F1F",
+    "text": "#F5F7FA",
+    "card": "#131A2B",
+    "accent": "#FF3B8D",
+    "primary": "#40C9FF",
+    "danger": "#FF5577",
 }
 
+
 PLANNER = {
-    "bg": "#FFFFFF",
-    "text": "#1F2937",
-    "primary": "#059669",  # emerald green
-    "card": "#FFFFFF",
-    "accent": "#10B981",
-    "table_header": "#D1FAE5",
+    "bg": "#E8F5E9",        # medium soft green
+    "text": "#1B5E20",      # deep green for contrast
+    "card": "#FFFFFF",      # clean white cards
+    "accent": "#66BB6A",    # medium green accents
+    "primary": "#388E3C",   # darker forest green
 }
+
 
 
 # ---------------------------------------------------------
@@ -60,15 +62,23 @@ def apply_resident_theme():
     <style>
         body {{
             background-color: {PASTEL['bg']} !important;
+            color: {PASTEL['text']} !important;
         }}
-        .stApp {{
-            background-color: {PASTEL['bg']} !important;
+        .stMetricValue, .stMetricLabel {{
+            color: {PASTEL['text']} !important;
         }}
-        h1, h2, h3, h4, h5, h6, p {{
+        .stButton>button {{
+            background-color: {PASTEL['accent']} !important;
+            color: white !important;
+            border-radius: 10px;
+            border: none;
+        }}
+        .stTab {{
             color: {PASTEL['text']} !important;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 def apply_controller_theme():
@@ -76,22 +86,20 @@ def apply_controller_theme():
     <style>
         body {{
             background-color: {DARK_NEON['bg']} !important;
-        }}
-        .stApp {{
-            background-color: {DARK_NEON['bg']} !important;
             color: {DARK_NEON['text']} !important;
         }}
-        h1, h2, h3, h4, h5, h6, p {{
+        .stMetricValue, .stMetricLabel {{
             color: {DARK_NEON['text']} !important;
         }}
-        .metric-container {{
-            background-color: {DARK_NEON['card']} !important;
-            padding: 10px;
+        .stButton>button {{
+            background-color: {DARK_NEON['accent']} !important;
+            color: white !important;
             border-radius: 10px;
-            margin-bottom: 10px;
+            border: none;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 def apply_planner_theme():
@@ -99,15 +107,20 @@ def apply_planner_theme():
     <style>
         body {{
             background-color: {PLANNER['bg']} !important;
-        }}
-        .stApp {{
-            background-color: {PLANNER['bg']} !important;
-        }}
-        h1, h2, h3 {{
             color: {PLANNER['text']} !important;
+        }}
+        .stMetricValue, .stMetricLabel {{
+            color: {PLANNER['text']} !important;
+        }}
+        .stButton>button {{
+            background-color: {PLANNER['accent']} !important;
+            color: white !important;
+            border-radius: 10px;
+            border: none;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 # ---------------------------------------------------------
@@ -821,18 +834,27 @@ def simulate_city_grid(n_points=200):
 
 
 # ---------------------------------------------------------
-#  PLANNER: Tree Priority Map (Fixed Base Map)
+#  PLANNER: Tree Priority Map (Fixed Number Formatting)
 # ---------------------------------------------------------
 
 def planner_tree_map_page(df):
     st.subheader("🗺️ Heilbronn Green Intervention Map")
 
-    # --- 1. Generate Data for Heilbronn (Center Locked) ---
-    # 模拟海尔布隆市中心的数据点
+    # --- 1. Generate Data ---
     map_data = simulate_city_grid(n_points=300)
 
+    # 【关键修复步骤 1】: 在数据层面进行四舍五入
+    # 直接把 DataFrame 里的数字处理成你想要的小数位数
+    map_data = map_data.round({
+        "latitude": 4,  # 经纬度保留4位
+        "longitude": 4,
+        "heat_level": 1,  # 压力值保留1位
+        "air_quality_gap": 1,
+        "noise_level": 1,
+        "tree_priority": 0  # 优先级取整数
+    })
+
     # --- 2. Define Color Logic ---
-    # Green (Safe) -> Yellow (Warning) -> Red (Critical)
     def get_color(score):
         if score < 50:
             return [0, 255, 128, 160]  # Greenish
@@ -854,17 +876,16 @@ def planner_tree_map_page(df):
         "ScatterplotLayer",
         map_data,
         get_position=["longitude", "latitude"],
-        get_radius=120,  # 稍微调小一点半径，让点更清晰
+        get_radius=120,
         get_fill_color="color",
         pickable=True,
         opacity=0.9,
         stroked=True,
-        get_line_color=[255, 255, 255],  # 给圆点加个白边，更像第一张图的风格
+        get_line_color=[255, 255, 255],
         line_width_min_pixels=1,
         filled=True,
     )
 
-    # Initial View: Focused on Heilbronn City Center
     view_state = pdk.ViewState(
         latitude=49.1427,
         longitude=9.2109,
@@ -873,33 +894,36 @@ def planner_tree_map_page(df):
         bearing=0
     )
 
-    # Tooltip
+    # 【关键修复步骤 2】: HTML 里只写纯变量名
+    # 也就是去掉所有的 :.0f 或 :.4f
     tooltip = {
-        "html": "<b>📍 Zone Priority: {tree_priority:.0f}</b><br/>"
-                "🌡 Heat Stress: {heat_level:.1f}<br/>"
-                "🌫 Air Quality: {air_quality_gap:.1f}<br/>"
-                "📢 Noise Level: {noise_level:.1f}",
+        "html": "<b>📍 Zone Priority: {tree_priority}</b><br/>"
+                "🌡 Heat Stress: {heat_level}<br/>"
+                "🌫 Air Quality: {air_quality_gap}<br/>"
+                "📢 Noise Level: {noise_level}<br/>"
+                "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
+                "🌐 Lat: {latitude}<br/>"
+                "🌐 Lon: {longitude}",
         "style": {
             "backgroundColor": "#1f2937",
             "color": "white",
             "fontSize": "12px",
-            "padding": "10px"
+            "padding": "10px",
+            "zIndex": "9999"
         }
     }
 
-    # --- 4. Render Map with CARTO Style (No Token Needed) ---
     r = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
         tooltip=tooltip,
-        # 关键修改在这里：使用 'carto' 提供商和 'dark' 样式
         map_provider="carto",
         map_style="dark",
     )
 
     st.pydeck_chart(r)
 
-    st.success("💡 **Map Loaded:** This view uses the OpenStreetMap/CARTO dark theme, which requires no API token.")
+    st.success("💡 **Map Updated:** Coordinates and metrics are now displayed correctly.")
 # =====================================================================
 #  PART 6 — MAIN APP ASSEMBLY (patched for rerun & clean routing)
 # =====================================================================
