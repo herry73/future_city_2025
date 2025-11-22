@@ -1,225 +1,828 @@
+# =====================================================================
+#  PART 1 — IMPORTS + THEMES + UTILITIES + UNIFIED DATA LOADER
+# =====================================================================
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from features import analyze_sensor_relationships
-from plots import ts_plot, corr_heatmap, hourly_pattern_bar
+import pydeck as pdk
+from datetime import datetime, date
+
+# Import backend analysis functions
+from features import (
+    add_health_score,
+    detect_air_risk_alerts,
+    detect_night_noise_events,
+    compute_tree_priority,
+    analyze_sensor_relationships,
+)
+
+# ---------------------------------------------------------
+#  GLOBAL STYLE PALETTES
+# ---------------------------------------------------------
+
+PASTEL = {
+    "bg": "#F7F9FC",
+    "text": "#3A506B",
+    "primary": "#6BB6FF",
+    "card": "#FFFFFF",
+    "accent": "#8EC6FF"
+}
+
+DARK_NEON = {
+    "bg": "#0D1117",
+    "text": "#C9D1D9",
+    "primary": "#58A6FF",
+    "card": "#161B22",
+    "accent": "#1F6FEB",
+    "danger": "#F85149",
+}
+
+PLANNER = {
+    "bg": "#FFFFFF",
+    "text": "#1F2937",
+    "primary": "#059669",  # emerald green
+    "card": "#FFFFFF",
+    "accent": "#10B981",
+    "table_header": "#D1FAE5",
+}
 
 
-@st.cache_data
-def load_air_data():
-    df = pd.read_csv("data/processed/air_quality.csv", parse_dates=["timestamp"])
-    df = df.set_index("timestamp").sort_index()
-    return df
+# ---------------------------------------------------------
+#  ROLE-BASED THEMES (Inject CSS)
+# ---------------------------------------------------------
+
+def apply_resident_theme():
+    st.markdown(f"""
+    <style>
+        body {{
+            background-color: {PASTEL['bg']} !important;
+        }}
+        .stApp {{
+            background-color: {PASTEL['bg']} !important;
+        }}
+        h1, h2, h3, h4, h5, h6, p {{
+            color: {PASTEL['text']} !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
 
-@st.cache_data
-def load_weather_data():
-    df = pd.read_csv("data/processed/weather.csv", parse_dates=["timestamp"])
-    df = df.set_index("timestamp").sort_index()
-
-    df = df.rename(columns={
-        "temperature_degC": "temperature",
-        "humidity_percent": "humidity"
-    })
-
-    return df
-
-
-
-
-@st.cache_data
-def load_noise_data():
-    df = pd.read_csv("data/processed/noise.csv", parse_dates=["timestamp"])
-    df = df.set_index("timestamp").sort_index()
-
-    df = df.rename(columns={
-        "noise_db": "noise"
-    })
-
-    return df
+def apply_controller_theme():
+    st.markdown(f"""
+    <style>
+        body {{
+            background-color: {DARK_NEON['bg']} !important;
+        }}
+        .stApp {{
+            background-color: {DARK_NEON['bg']} !important;
+            color: {DARK_NEON['text']} !important;
+        }}
+        h1, h2, h3, h4, h5, h6, p {{
+            color: {DARK_NEON['text']} !important;
+        }}
+        .metric-container {{
+            background-color: {DARK_NEON['card']} !important;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
 
+def apply_planner_theme():
+    st.markdown(f"""
+    <style>
+        body {{
+            background-color: {PLANNER['bg']} !important;
+        }}
+        .stApp {{
+            background-color: {PLANNER['bg']} !important;
+        }}
+        h1, h2, h3 {{
+            color: {PLANNER['text']} !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
-def date_range_selector(df):
+
+# ---------------------------------------------------------
+#  UTILITY — DROPDOWN DATE SELECTORS
+# ---------------------------------------------------------
+
+def select_date_range(df):
+    """User-friendly date input widgets."""
     min_date = df.index.min().date()
     max_date = df.index.max().date()
 
-    start, end = st.slider(
-        "Select date range",
-        min_value=min_date,
-        max_value=max_date,
-        value=(min_date, max_date),
-    )
+    col1, col2 = st.columns(2)
+
+    start = col1.date_input("Start Date", min_date, min_value=min_date, max_value=max_date)
+    end = col2.date_input("End Date", max_date, min_value=min_date, max_value=max_date)
 
     mask = (df.index.date >= start) & (df.index.date <= end)
     return df.loc[mask]
 
-def air_quality_page():
-    st.header("Air Quality & Traffic Alerts")
 
-    df = load_air_data()
-    df_range = date_range_selector(df)
+# ---------------------------------------------------------
+#  UTILITY — ADD THRESHOLD BANDS
+# ---------------------------------------------------------
 
-    pollutant_map = {
-        "NO₂ (µg/m³)": "no2_ugm3",
-        "PM10 (µg/m³)": "pm10_ugm3",
-        "PM2.5 (µg/m³)": "pm2_5_ugm3",
-        "O₃ (µg/m³)": "o3_ugm3",
-    }
+def draw_threshold(ax, threshold, label, color="red"):
+    ax.axhline(threshold, linestyle="--", color=color, linewidth=1.5, label=label)
+    ax.legend()
 
-    label = st.selectbox("Choose pollutant", list(pollutant_map.keys()))
-    col = pollutant_map[label]
 
-    # Threshold slider (80th percentile default)
-    default_thr = float(df_range[col].quantile(0.8))
-    threshold = st.slider(
-        f"{label} alert threshold",
-        float(df_range[col].min()),
-        float(df_range[col].max()),
-        value=default_thr,
+# ---------------------------------------------------------
+#  UTILITY — HIGHLIGHT ANOMALIES ON PLOT
+# ---------------------------------------------------------
+
+def highlight_anomalies(ax, df, column):
+    if "is_anomaly" in df.columns:
+        anomalies = df[df["is_anomaly"] == 1]
+        if len(anomalies):
+            ax.scatter(anomalies.index, anomalies[column], color="red", s=30, label="Anomaly")
+
+
+# ---------------------------------------------------------
+#  SHARED COMPONENT — METRIC CARD
+# ---------------------------------------------------------
+
+def metric_card(title, value, subtitle="", color="#FFFFFF"):
+    st.markdown(
+        f"""
+        <div style="
+            background-color:{color};
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+        ">
+            <h3 style="margin:0;padding:0;">{title}</h3>
+            <h2 style="margin:0;padding:0;">{value}</h2>
+            <p style="margin:0;padding:0;font-size:13px;opacity:0.8;">{subtitle}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    above = df_range[df_range[col] > threshold]
+
+# ---------------------------------------------------------
+#  UTILITY — PYDECK MAP CONSTRUCTION
+# ---------------------------------------------------------
+
+def map_layer(df, lat_col="latitude", lon_col="longitude", value_col=None, color=[255, 0, 0]):
+    """Generic map layer for any metric."""
+    df_map = df[[lat_col, lon_col, value_col]].dropna() if value_col else df[[lat_col, lon_col]].dropna()
+
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        df_map,
+        get_position=[lon_col, lat_col],
+        get_radius=30,
+        get_fill_color=color,
+        pickable=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=df_map[lat_col].mean(),
+        longitude=df_map[lon_col].mean(),
+        zoom=11,
+        pitch=40,
+    )
+
+    return pdk.Deck(layers=[layer], initial_view_state=view_state)
 
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Average", f"{df_range[col].mean():.1f}")
-    c2.metric("Max", f"{df_range[col].max():.1f}")
-    c3.metric("Min", f"{df_range[col].min():.1f}")
-    c4.metric("Days above threshold", above.shape[0])
+# ---------------------------------------------------------
+#  UNIFIED DATA LOADER
+# ---------------------------------------------------------
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    df_range[col].plot(ax=ax, label="value")
+@st.cache_data
+def load_data():
+    """Loads and merges all CSVs from data/processed."""
 
-    if "is_anomaly" in df_range.columns:
-        anoms = df_range[df_range["is_anomaly"] == 1]
-        if not anoms.empty:
-            ax.scatter(anoms.index, anoms[col], marker="o")
+    air = pd.read_csv("data/processed/air_quality.csv", parse_dates=["timestamp"])
+    weather = pd.read_csv("data/processed/weather.csv", parse_dates=["timestamp"])
+    noise = pd.read_csv("data/processed/noise.csv", parse_dates=["timestamp"])
 
-    ax.axhline(threshold, linestyle="--")
-    ax.set_title(f"{label} over time (dashed = alert threshold)")
-    ax.set_xlabel("Time")
-    ax.set_ylabel(label)
-    fig.tight_layout()
-    st.pyplot(fig)
-
-
-
-
-def heatwave_page():
-    st.header("Heatwave Early Warning")
-
-    df = load_weather_data()
-    df_range = date_range_selector(df)
-
-    sensor = "temperature"
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Average °C", f"{df_range[sensor].mean():.1f}")
-    col2.metric("Max °C", f"{df_range[sensor].max():.1f}")
-    col3.metric("Min °C", f"{df_range[sensor].min():.1f}")
-
-    fig = ts_plot(df_range, sensor, "Temperature over time")
-    st.pyplot(fig)
-
-
-
-
-def noise_page():
-    st.header("Event & Noise Monitoring")
-
-    df = load_noise_data()
-    df_range = date_range_selector(df)
-
-    sensor = "noise"
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Avg dB", f"{df_range[sensor].mean():.1f}")
-    col2.metric("Max dB", f"{df_range[sensor].max():.1f}")
-    col3.metric("Min dB", f"{df_range[sensor].min():.1f}")
-    col4.metric("Anomalies", int(df_range["is_anomaly"].sum()))
-
-    fig = ts_plot(df_range, sensor, "Noise level over time")
-    st.pyplot(fig)
-
-
-
-
-def insights_page():
-    st.header("Overall Insights")
-
-    # Load datasets
-    air = load_air_data()
-    weather = load_weather_data()
-    noise = load_noise_data()
-
-    # Rename pollutant columns (required by relationship analyzer)
-    air = air.rename(columns={
-        "no2_ugm3": "NO2",
-        "o3_ugm3": "O3"
+    # Rename weather columns
+    weather = weather.rename(columns={
+        "temperature_degC": "temperature",
+        "humidity_percent": "humidity"
     })
 
-    # ⚠️ FIX: remove duplicate columns before joining
-    for df in (air, weather, noise):
-        for col in ["latitude", "longitude", "is_anomaly"]:
-            df.drop(columns=[col], errors="ignore", inplace=True)
+    # Rename noise column
+    noise = noise.rename(columns={"noise_db": "noise"})
 
-    # Merge everything
-    df = air.join(weather, how="outer").join(noise, how="outer")
-
-    # Choose columns for heatmap
-    possible = ["NO2", "O3", "pm10_ugm3", "temperature", "humidity", "noise"]
-    cols = [c for c in possible if c in df.columns]
-
-    if len(cols) < 2:
-        st.info("Not enough variables yet to show a correlation heatmap.")
-        return
-
-    # Correlation matrix
-    fig = corr_heatmap(df, cols, "Correlation between sensors")
-    st.pyplot(fig)
-
-    # --- Sensor relationships ---
-    stats = analyze_sensor_relationships(df)
-
-    st.subheader("Sensor relationships")
-
-    col1, col2 = st.columns(2)
-
-    col1.metric("NO₂ vs Traffic (noise) correlation", f"{stats['corr_no2_traffic']:.2f}")
-    col1.metric("NO₂ high traffic / low traffic", f"{stats['no2_traffic_factor']:.2f}×")
-
-    col2.metric("O₃ vs Sunlight (temperature) correlation", f"{stats['corr_o3_sunlight']:.2f}")
-    col2.metric("O₃ high sun / low sun", f"{stats['o3_sunlight_factor']:.2f}×")
-
-
-
-
-
-def main():
-    st.set_page_config(page_title="Future City Dashboard", layout="wide")
-
-    st.sidebar.title("Smart City Use Cases")
-    page = st.sidebar.radio(
-        "Select view",
-        (
-            "Air Quality",
-            "Heatwave",
-            "Noise & Events",
-            "Insights"
-        )
+    df = (
+        air.merge(weather, on="timestamp", how="outer", suffixes=("", "_wx"))
+           .merge(noise, on="timestamp", how="outer", suffixes=("", "_nx"))
+           .sort_values("timestamp")
     )
 
-    if page == "Air Quality":
-        air_quality_page()
-    elif page == "Heatwave":
-        heatwave_page()
-    elif page == "Noise & Events":
-        noise_page()
-    elif page == "Insights":
-        insights_page()
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.set_index("timestamp")
 
+    # Ensure numeric
+    df = df.apply(pd.to_numeric, errors="ignore")
+
+    return df
+
+# =====================================================================
+#  PART 2 — LANDING PAGE + ROLE ROUTING BASICS
+# =====================================================================
+
+def init_session_state():
+    """Ensure required session_state keys exist."""
+    if "role" not in st.session_state:
+        st.session_state.role = None
+    if "resident_page" not in st.session_state:
+        st.session_state.resident_page = "Today"
+    if "controller_page" not in st.session_state:
+        st.session_state.controller_page = "Dashboard"
+    if "planner_page" not in st.session_state:
+        st.session_state.planner_page = "Overview"
+
+
+def role_card(title, emoji, description, role_key, bg_color, text_color):
+    """Reusable clickable role card for landing page."""
+    clicked = st.button(
+        f"{emoji}  {title}",
+        key=f"role_{role_key}",
+        use_container_width=True
+    )
+    # Description under the button
+    st.markdown(
+        f"""
+        <div style="
+            background-color:{bg_color};
+            color:{text_color};
+            padding:10px 14px;
+            border-radius:10px;
+            font-size:13px;
+            margin-top:4px;
+            min-height:60px;
+        ">
+            {description}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    return clicked
+
+
+def landing_page():
+    """Landing screen where the user chooses their role."""
+    init_session_state()
+
+    st.markdown(
+        "<h1 style='text-align:center; margin-bottom:0;'>🌆 Future City Intelligence</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center; font-size:18px; margin-top:4px;'>"
+        "Choose your perspective to explore Heilbronn's air, heat and noise."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if role_card(
+            title="Resident",
+            emoji="👤",
+            description="See if today feels safe and comfortable: air quality, heat and noise in simple terms.",
+            role_key="resident",
+            bg_color=PASTEL["card"],
+            text_color=PASTEL["text"],
+        ):
+            st.session_state.role = "resident"
+
+    with col2:
+        if role_card(
+            title="Smart City Controller",
+            emoji="🚨",
+            description="Monitor live alerts, air-risk episodes and night-time noise disturbances.",
+            role_key="controller",
+            bg_color=DARK_NEON["card"],
+            text_color=DARK_NEON["text"],
+        ):
+            st.session_state.role = "controller"
+
+    with col3:
+        if role_card(
+            title="City Planner",
+            emoji="🏙️",
+            description="Understand long-term stress, correlations and where to plant trees first.",
+            role_key="planner",
+            bg_color=PLANNER["card"],
+            text_color=PLANNER["text"],
+        ):
+            st.session_state.role = "planner"
+
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+
+    st.markdown(
+        "<p style='text-align:center; font-size:13px; opacity:0.7;'>"
+        "You can always go back and change your role later."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+# =====================================================================
+#  PART 3 — RESIDENT DASHBOARD (experimental, pastel theme)
+# =====================================================================
+
+def resident_city_mood(health_score):
+    """Return emoji + message based on average health score."""
+    if health_score > 80:
+        return "😄 Excellent — Enjoy the fresh air!"
+    elif health_score > 60:
+        return "🙂 Good — Conditions are mostly fine."
+    elif health_score > 40:
+        return "😐 Mixed — Some pollution may be noticeable."
+    elif health_score > 20:
+        return "😟 Poor — Sensitive groups take care."
+    return "😡 Very Bad — Avoid outdoor activities."
+
+
+def resident_air_panel(df):
+    st.subheader("🌫 Air Quality Overview")
+
+    pollutants = ["no2_ugm3", "pm2_5_ugm3", "pm10_ugm3", "o3_ugm3"]
+    labels = ["NO₂ (µg/m³)", "PM2.5 (µg/m³)", "PM10 (µg/m³)", "O₃ (µg/m³)"]
+
+    col1, col2, col3, col4 = st.columns(4)
+    cols = [col1, col2, col3, col4]
+
+    for col, label, pol in zip(cols, labels, pollutants):
+        col.metric(label, f"{df[pol].mean():.1f}", help="Daily average concentration")
+
+    # Plot main pollutant for residents: PM2.5
+    st.write("**PM2.5 is the most relevant pollutant for health.**")
+    fig, ax = plt.subplots(figsize=(8, 3))
+    df["pm2_5_ugm3"].plot(ax=ax, label="PM2.5")
+    draw_threshold(ax, df["pm2_5_ugm3"].quantile(0.90), "Upper health limit")
+    highlight_anomalies(ax, df, "pm2_5_ugm3")
+    st.pyplot(fig)
+
+    # Air quality map
+    st.write("**Air Quality Hotspots Map**")
+    try:
+        deck = map_layer(df, value_col="pm2_5_ugm3", color=[200, 0, 80])
+        st.pydeck_chart(deck)
+    except:
+        st.warning("Map view unavailable — missing coordinates.")
+
+
+def resident_heat_panel(df):
+    st.subheader("🔥 Heat Comfort")
+
+    avg_temp = df["temperature"].mean()
+    hot_hours = (df["temperature"] > 30).sum()
+
+    col1, col2 = st.columns(2)
+    col1.metric("Average Temperature (°C)", f"{avg_temp:.1f}")
+    col2.metric("Hot Hours (>30°C)", f"{hot_hours}")
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    df["temperature"].plot(ax=ax, color="#FF7F50")
+    draw_threshold(ax, 30, "Heat discomfort threshold")
+    st.pyplot(fig)
+
+
+def resident_noise_panel(df):
+    st.subheader("🔊 Noise Comfort")
+
+    avg_noise = df["noise"].mean()
+    loud_hours = (df["noise"] > 70).sum()
+
+    col1, col2 = st.columns(2)
+    col1.metric("Average Noise (dB)", f"{avg_noise:.1f}")
+    col2.metric("Loud Hours (>70 dB)", f"{loud_hours}")
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    df["noise"].plot(ax=ax, color="#8A2BE2")
+    draw_threshold(ax, 70, "Noise discomfort threshold")
+    highlight_anomalies(ax, df, "noise")
+    st.pyplot(fig)
+
+    st.write("**Noise Hotspots Map**")
+    try:
+        deck = map_layer(df, value_col="noise", color=[0, 80, 255])
+        st.pydeck_chart(deck)
+    except:
+        st.warning("Map not available — missing coordinates.")
+
+
+def resident_dashboard(df):
+    apply_resident_theme()
+
+    st.title("👤 Resident View — How is the city today?")
+
+    df_range = select_date_range(df)
+    df_health = add_health_score(df_range.copy())
+
+    avg_health = df_health["health_score"].mean()
+
+    st.subheader("🌈 City Mood")
+    st.markdown(f"<h2>{resident_city_mood(avg_health)}</h2>", unsafe_allow_html=True)
+
+    metric_card(
+        title="Wellbeing Score",
+        value=f"{avg_health:.1f}/100",
+        subtitle="Based on clean air & comfort levels today",
+        color="#FFFFFF"
+    )
+
+    st.subheader("💓 City Health Score Over Time")
+    fig, ax = plt.subplots(figsize=(8,3))
+    df_health["health_score"].plot(ax=ax, color="#6BB6FF")
+    st.pyplot(fig)
+
+    # Detailed panels
+    st.markdown("<hr>", unsafe_allow_html=True)
+    resident_air_panel(df_range)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    resident_heat_panel(df_range)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    resident_noise_panel(df_range)
+
+# =====================================================================
+#  PART 4 — SMART CITY CONTROLLER DASHBOARD (dark neon, alerts)
+# =====================================================================
+
+def controller_dashboard(df):
+    apply_controller_theme()
+
+    st.title("🚨 Smart City Control Hub")
+
+    # Controller-only navigation
+    page = st.sidebar.radio(
+        "Controller Views",
+        ["Dashboard", "Air-Risk Episodes", "Night Noise Disturbances", "Incident Map"],
+        key="controller_nav"
+    )
+
+    # Precompute health score once
+    df_health = add_health_score(df.copy())
+
+    if page == "Dashboard":
+        controller_main_dashboard(df, df_health)
+    elif page == "Air-Risk Episodes":
+        controller_air_risk_page(df_health)
+    elif page == "Night Noise Disturbances":
+        controller_night_noise_page(df)
+    elif page == "Incident Map":
+        controller_incident_map_page(df_health)
+
+
+def controller_main_dashboard(df, df_health):
+    st.subheader("System Health Overview")
+
+    df_range = select_date_range(df)
+    df_h_range = df_health.loc[df_range.index.intersection(df_health.index)]
+
+    avg_health = df_h_range["health_score"].mean()
+    pollution_peaks = (df_h_range["health_score"] < 40).sum()
+    avg_noise = df_range["noise"].mean()
+    loud_hours = (df_range["noise"] > 70).sum()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Avg Health Score", f"{avg_health:.1f}")
+    c2.metric("Hours with bad air (score<40)", f"{pollution_peaks}")
+    c3.metric("Avg Noise (dB)", f"{avg_noise:.1f}")
+    c4.metric("Loud Hours (>70 dB)", f"{loud_hours}")
+
+    st.markdown("---")
+
+    st.subheader("Health Score Timeline (with risk band)")
+    fig, ax = plt.subplots(figsize=(9, 3))
+    df_h_range["health_score"].plot(ax=ax, color=DARK_NEON["primary"])
+    draw_threshold(ax, 40, "Air-risk threshold (score<40)", color=DARK_NEON["danger"])
+    st.pyplot(fig)
+
+    st.subheader("Key Pollutant Levels (95th percentile bands)")
+    pollutants = ["no2_ugm3", "pm10_ugm3", "pm2_5_ugm3", "o3_ugm3"]
+    rows = []
+    for pol in pollutants:
+        series = df_range[pol]
+        thr = series.quantile(0.95)
+        rows.append({
+            "Pollutant": pol,
+            "Mean": series.mean(),
+            "95th percentile threshold": thr,
+        })
+
+    st.dataframe(pd.DataFrame(rows).set_index("Pollutant").round(2))
+
+
+def controller_air_risk_page(df_health):
+    st.subheader("Air-Risk Episodes (Health Score < 40 & Noise > 70 dB)")
+
+    df_alert, episodes = detect_air_risk_alerts(df_health)
+
+    if episodes.empty:
+        st.success("✅ No multi-hour air-risk episodes detected for this period.")
+        return
+
+    st.info("Episodes are periods where health score < 40 and noise > 70 dB for ≥ 3 hours.")
+
+    st.dataframe(episodes)
+
+    # Plot with episode shading
+    st.subheader("Timeline with Air-Risk Episodes Shaded")
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+    df_alert["health_score"].plot(ax=ax, color=DARK_NEON["primary"], label="Health Score")
+    draw_threshold(ax, 40, "Health threshold (40)", color=DARK_NEON["danger"])
+
+    # Shade air_risk_alert True segments
+    in_episode = False
+    start = None
+    for idx, row in df_alert.iterrows():
+        if row["air_risk_alert"] and not in_episode:
+            in_episode = True
+            start = idx
+        elif not row["air_risk_alert"] and in_episode:
+            in_episode = False
+            ax.axvspan(start, idx, color="red", alpha=0.15)
+    if in_episode:
+        ax.axvspan(start, df_alert.index[-1], color="red", alpha=0.15)
+
+    st.pyplot(fig)
+
+
+def controller_night_noise_page(df):
+    st.subheader("Night-Time Noise Disturbances")
+
+    st.caption("Night defined as 22:00–06:00. Event = noise > 60 dB for ≥ 60 minutes.")
+
+    df_events, night_events = detect_night_noise_events(df)
+
+    if night_events.empty:
+        st.success("✅ No night-time disturbance episodes detected for this period.")
+    else:
+        st.dataframe(night_events)
+
+    st.subheader("Noise Timeline with Night Disturbances Highlighted")
+
+    df_range = select_date_range(df)
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+    df_range["noise"].plot(ax=ax, color="#58A6FF", label="Noise (dB)")
+    draw_threshold(ax, 60, "Night disturbance threshold (60 dB)", color="#F0883E")
+
+    # Highlight night-time periods visually
+    hours = df_range.index.hour
+    is_night = (hours >= 22) | (hours < 6)
+    ax.fill_between(df_range.index, df_range["noise"].min(), df_range["noise"].max(),
+                    where=is_night, color="grey", alpha=0.08, label="Night hours")
+
+    ax.legend()
+    st.pyplot(fig)
+
+
+def controller_incident_map_page(df_health):
+    st.subheader("Geospatial View of Air-Risk Hotspots")
+
+    df_alert, episodes = detect_air_risk_alerts(df_health)
+    df_alert = df_alert[df_alert["air_risk_alert"]]
+
+    if df_alert.empty or "latitude" not in df_alert.columns or "longitude" not in df_alert.columns:
+        st.warning("No geo-located air-risk alerts available.")
+        return
+
+    try:
+        deck = map_layer(df_alert, value_col="health_score", color=[255, 80, 80])
+        st.pydeck_chart(deck)
+    except Exception as e:
+        st.warning(f"Could not render map: {e}")
+
+# =====================================================================
+#  PART 5 — CITY PLANNER DASHBOARD (eco theme, long-term planning)
+# =====================================================================
+
+def planner_dashboard(df):
+    apply_planner_theme()
+
+    st.title("🏙 City Planner Dashboard")
+
+    # Planner-specific sidebar navigation
+    page = st.sidebar.radio(
+        "Planner Views",
+        [
+            "Overview",
+            "Correlation Analysis",
+            "Tree Priority & Chronic Stress",
+            "Sensor Relationship Explorer",
+            "Tree Priority Map"
+        ],
+        key="planner_nav"
+    )
+
+    if page == "Overview":
+        planner_overview_page(df)
+    elif page == "Correlation Analysis":
+        planner_correlation_page(df)
+    elif page == "Tree Priority & Chronic Stress":
+        planner_tree_priority_page(df)
+    elif page == "Sensor Relationship Explorer":
+        planner_sensor_relationship_page(df)
+    elif page == "Tree Priority Map":
+        planner_tree_map_page(df)
+
+
+# ---------------------------------------------------------
+#  PLANNER: Overview Page
+# ---------------------------------------------------------
+
+def planner_overview_page(df):
+    st.subheader("📊 Long-Term Environmental Overview")
+
+    df_range = select_date_range(df)
+    df_health = add_health_score(df_range.copy())
+
+    avg_health = df_health["health_score"].mean()
+    chronic_air = (df_health["health_score"] < 40).mean()
+    chronic_noise = (df_range["noise"] > 70).mean()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Avg Health Score", f"{avg_health:.1f}")
+    col2.metric("Chronic Air Stress (%)", f"{chronic_air*100:.1f}")
+    col3.metric("Chronic Noise Stress (%)", f"{chronic_noise*100:.1f}")
+
+    st.markdown("### Health Score Over Time")
+    fig, ax = plt.subplots(figsize=(9,4))
+    df_health["health_score"].plot(ax=ax, color=PLANNER["primary"])
+    draw_threshold(ax, 40, "Air-risk threshold")
+    st.pyplot(fig)
+
+    st.markdown("---")
+
+    st.subheader("Key Pollutant Trends")
+    pollutants = ["no2_ugm3", "pm10_ugm3", "pm2_5_ugm3", "o3_ugm3"]
+    for pol in pollutants:
+        st.markdown(f"#### {pol}")
+        fig, ax = plt.subplots(figsize=(9,3))
+        df_range[pol].plot(ax=ax, color=PLANNER["accent"])
+        st.pyplot(fig)
+
+
+# ---------------------------------------------------------
+#  PLANNER: Correlation Analysis
+# ---------------------------------------------------------
+
+def planner_correlation_page(df):
+    st.subheader("📈 Correlation Matrix Between Environmental Factors")
+
+    df_range = select_date_range(df)
+
+    cols = [
+        "no2_ugm3", "pm10_ugm3", "pm2_5_ugm3", "o3_ugm3",
+        "temperature", "humidity", "noise"
+    ]
+    cols = [c for c in cols if c in df_range.columns]
+
+    if len(cols) < 2:
+        st.warning("Not enough variables for correlation analysis.")
+        return
+
+    corr = df_range[cols].corr()
+
+    fig, ax = plt.subplots(figsize=(9, 7))
+    im = ax.imshow(corr, cmap="Greens", vmin=-1, vmax=1)
+    ax.set_xticks(range(len(cols)))
+    ax.set_xticklabels(cols, rotation=45)
+    ax.set_yticks(range(len(cols)))
+    ax.set_yticklabels(cols)
+    fig.colorbar(im)
+    st.pyplot(fig)
+
+    st.markdown("Green = positive correlation, dark green = strong positive, white = zero, brown = negative.")
+
+
+# ---------------------------------------------------------
+#  PLANNER: Tree Priority & Chronic Stress
+# ---------------------------------------------------------
+
+def planner_tree_priority_page(df):
+    st.subheader("🌳 Tree Priority Index & Chronic Stress Analysis")
+
+    df_range = select_date_range(df)
+    df_health = add_health_score(df_range.copy())
+
+    chronic_air, chronic_noise, priority = compute_tree_priority(df_health)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Chronic Air Stress (%)", f"{chronic_air*100:.1f}")
+    col2.metric("Chronic Noise Stress (%)", f"{chronic_noise*100:.1f}")
+    col3.metric("Tree Priority Score", f"{priority:.1f}")
+
+    st.write("""
+    **Interpretation:**  
+    - Chronic Air Stress → % of time health score < 40  
+    - Chronic Noise Stress → % of time noise > 70 dB  
+    - Tree Priority Score → Weighted combination (0–100) guiding where green coverage is needed  
+    """)
+
+    st.markdown("---")
+
+    st.subheader("Tree Priority Timeline")
+    fig, ax = plt.subplots(figsize=(9,4))
+    df_health["health_score"].plot(ax=ax, color=PLANNER["primary"])
+    draw_threshold(ax, 40, "Air-risk threshold")
+    st.pyplot(fig)
+
+
+# ---------------------------------------------------------
+#  PLANNER: Sensor Relationship Explorer
+# ---------------------------------------------------------
+
+def planner_sensor_relationship_page(df):
+    st.subheader("🔬 Sensor Relationship Explorer")
+
+    df_range = select_date_range(df)
+    stats = analyze_sensor_relationships(df_range)
+
+    st.write("These metrics highlight causal relationships between variables (e.g., traffic → NO₂).")
+    st.dataframe(pd.DataFrame([stats]))
+
+
+# ---------------------------------------------------------
+#  PLANNER: Tree Priority Map
+# ---------------------------------------------------------
+
+def planner_tree_map_page(df):
+    st.subheader("🗺 Tree Priority Hotspot Map")
+
+    df_health = add_health_score(df.copy())
+    _, _, priority = compute_tree_priority(df_health)
+
+    if "latitude" not in df.columns or "longitude" not in df.columns:
+        st.warning("No geolocation data available for mapping.")
+        return
+
+    try:
+        st.caption("Areas with high tree priority need more green infrastructure.")
+        deck = map_layer(df_health, value_col="health_score", color=[0, 200, 100])
+        st.pydeck_chart(deck)
+    except Exception as e:
+        st.warning(f"Could not render map: {e}")
+
+# =====================================================================
+#  PART 6 — MAIN APP ASSEMBLY (routing + themes + back button)
+# =====================================================================
+
+def main():
+    # Optional: you can move this to the very top of the file if Streamlit warns
+    st.set_page_config(
+        page_title="Future City Intelligence Dashboard",
+        layout="wide",
+        page_icon="🌆",
+    )
+
+    init_session_state()
+
+    # Load unified data once
+    df = load_data()
+
+    # If no role chosen yet → show landing
+    if st.session_state.role is None:
+        landing_page()
+        return
+
+    # Global sidebar for all roles
+    st.sidebar.title("Future City Intelligence")
+    st.sidebar.markdown(f"**Active Role:** `{st.session_state.role.capitalize()}`")
+
+    if st.sidebar.button("⬅ Back to Role Selection"):
+        st.session_state.role = None
+        st.experimental_rerun()
+
+    st.sidebar.markdown("---")
+
+    role = st.session_state.role
+
+    # Route to role-specific dashboard
+    if role == "resident":
+        resident_dashboard(df)
+
+    elif role == "controller":
+        controller_dashboard(df)
+
+    elif role == "planner":
+        planner_dashboard(df)
+
+
+# =====================================================================
 
 if __name__ == "__main__":
     main()
