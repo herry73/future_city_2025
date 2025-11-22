@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from smart_alerts import smart_alerts_page
 from features import analyze_sensor_relationships
 from plots import ts_plot, corr_heatmap, hourly_pattern_bar
 
@@ -202,14 +203,15 @@ def main():
 
     st.sidebar.title("Smart City Use Cases")
     page = st.sidebar.radio(
-        "Select view",
-        (
-            "Air Quality",
-            "Heatwave",
-            "Noise & Events",
-            "Insights"
-        )
+    "Select view",
+    (
+        "Air Quality",
+        "Heatwave",
+        "Noise & Events",
+        "Insights",
+        "Smart Alerts"
     )
+)
 
     if page == "Air Quality":
         air_quality_page()
@@ -219,6 +221,9 @@ def main():
         noise_page()
     elif page == "Insights":
         insights_page()
+    elif page == "Smart Alerts":
+        smart_alerts_page(load_air_data, load_weather_data, load_noise_data)
+
 
 
 if __name__ == "__main__":
