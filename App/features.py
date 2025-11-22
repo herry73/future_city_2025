@@ -32,7 +32,10 @@ def _median_step_minutes(index: pd.DatetimeIndex, default_minutes: float) -> flo
     return med_minutes if med_minutes > 0 else float(default_minutes)
 
 
+
+# ---------------------------------------------------------------------------
 # 0) HEALTH SCORE  -----------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def add_health_score(
     df: pd.DataFrame,
@@ -46,12 +49,6 @@ def add_health_score(
     """
     Add PollutionIndex and HealthScore (0–100, higher = better air)
     using NO2, PM2.5, PM10 and O3 from the synthetic smart-city dataset.
-
-    Columns required:
-        - no2_ugm3
-        - pm2_5_ugm3
-        - pm10_ugm3
-        - o3_ugm3
     """
 
     required = [no2_col, pm25_col, pm10_col, o3_col]
@@ -85,11 +82,11 @@ def add_health_score(
             return np.clip((series - smin) / denom, 0, 1)
         return np.clip((series - low) / (high - low), 0, 1)
 
-    # Scale columns
+    # Scale all pollutants
     for col in poll_cols:
         df[col + "_scaled"] = scaled(df[col], col)
 
-    # Weighted pollution index (0 = clean, 1 = dirty)
+    # Weighted pollution index
     df["pollution_index"] = (
         0.35 * df[no2_col + "_scaled"] +
         0.30 * df[pm25_col + "_scaled"] +
@@ -97,15 +94,14 @@ def add_health_score(
         0.10 * df[o3_col + "_scaled"]
     )
 
-    # Final Health Score (bigger = better)
     df["health_score"] = (1 - df["pollution_index"]) * 100
-
     return df
 
 
 
-
-# 1) SMART CITY CONTROLLER ALERTS  ------------------------------------------
+# ---------------------------------------------------------------------------
+# 1) SMART CITY CONTROLLER ALERTS -------------------------------------------
+# ---------------------------------------------------------------------------
 
 def detect_air_risk_alerts(
     df: pd.DataFrame,
@@ -114,29 +110,17 @@ def detect_air_risk_alerts(
     min_hours: int = 3,
     noise_col: str = "noise",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Smart City Controller alerts for a single point.
 
-    Conditions per time step:
-      - bad_air: HealthScore < health_threshold
-      - loud: noise > noise_threshold
-
-    An Air Risk episode is when these are true for >= min_hours consecutive time steps.
-    """
     _require_columns(df, ("health_score", noise_col))
-    df = prepare_time_index(df)
-    df = df.copy()
+    df = prepare_time_index(df).copy()
 
     df["bad_air"] = df["health_score"] < health_threshold
     df["loud"] = df[noise_col] > noise_threshold
+    df["stagnant"] = True   # placeholder for wind/rain in real dataset
 
-    # placeholder so logic matches the description (wind/rain could be added later)
-    df["stagnant"] = True
-
-    df["air_risk_alert"] = df["bad_air"] & df["stagnant"] & df["loud"]
+    df["air_risk_alert"] = df["bad_air"] & df["loud"] & df["stagnant"]
 
     step_minutes = _median_step_minutes(df.index, 60.0)
-
     s = df["air_risk_alert"]
     block_id = (s != s.shift()).cumsum()
 
@@ -153,11 +137,14 @@ def detect_air_risk_alerts(
     )
 
     episodes["duration_hours"] = episodes["steps"] * step_minutes / 60.0
-    episodes = episodes[episodes["duration_hours"] >= float(min_hours)].reset_index(drop=True)
+    episodes = episodes[episodes["duration_hours"] >= min_hours].reset_index(drop=True)
     return df, episodes
 
 
-# 2) NIGHT-TIME NOISE DISTURBANCE DETECTOR  ---------------------------------
+
+# ---------------------------------------------------------------------------
+# 2) NIGHT NOISE EVENT DETECTOR ---------------------------------------------
+# ---------------------------------------------------------------------------
 
 def detect_night_noise_events(
     df: pd.DataFrame,
@@ -165,19 +152,11 @@ def detect_night_noise_events(
     min_duration_minutes: int = 60,
     noise_col: str = "noise",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Night-time noise disturbance episodes.
 
-    Night: 22:00–06:00
-    Disturbance: noise > noise_threshold
-    Episode: continuous disturbance for >= min_duration_minutes.
-    """
     _require_columns(df, (noise_col,))
-    df = prepare_time_index(df)
-    df = df.copy()
+    df = prepare_time_index(df).copy()
 
     step_minutes = _median_step_minutes(df.index, float(min_duration_minutes))
-
     hours = df.index.hour
     is_night = (hours >= 22) | (hours < 6)
 
@@ -199,12 +178,14 @@ def detect_night_noise_events(
     )
 
     events["duration_min"] = events["steps"] * step_minutes
-    events = events[events["duration_min"] >= float(min_duration_minutes)].reset_index(drop=True)
+    events = events[events["duration_min"] >= min_duration_minutes].reset_index(drop=True)
     return df, events
 
 
 
-# 3) TREE PRIORITY SCORE  ----------------------------------------------------
+# ---------------------------------------------------------------------------
+# 3) TREE PRIORITY SCORE -----------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def compute_tree_priority(
     df: pd.DataFrame,
@@ -212,108 +193,143 @@ def compute_tree_priority(
     noise_threshold: float = 65,
     noise_col: str = "noise",
 ) -> tuple[float, float, float]:
-    """
-    Long-term Green Intervention Planner for a single point.
 
-    - chronic_air   = fraction of time with health_score < health_threshold
-    - chronic_noise = fraction of time with noise > noise_threshold
-    - tree_priority = 100 * (0.6*chronic_air + 0.4*chronic_noise)
-    """
     _require_columns(df, ("health_score", noise_col))
     df = df.copy()
 
     df["bad_air"] = df["health_score"] < health_threshold
     df["loud"] = df[noise_col] > noise_threshold
 
-    chronic_air = float(df["bad_air"].mean())     # 0..1
-    chronic_noise = float(df["loud"].mean())     # 0..1
+    chronic_air = float(df["bad_air"].mean())
+    chronic_noise = float(df["loud"].mean())
 
     tree_priority = 100 * (0.6 * chronic_air + 0.4 * chronic_noise)
     return chronic_air, chronic_noise, tree_priority
 
 
-# 4) SENSOR RELATIONSHIP EXPLORER  ------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 4) SENSOR RELATIONSHIP EXPLORER -------------------------------------------
+# ---------------------------------------------------------------------------
 
 def analyze_sensor_relationships(
     df: pd.DataFrame,
-    no2_col: str = "NO2",
+    no2_col: str = "no2_ugm3",
     noise_col: str = "noise",
-    o3_col: str = "O3",
-    temp_col: str = "temperature",
+    o3_col: str = "o3_ugm3",
+    temp_col: str = "temperature_degC",
     high_quantile: float = 0.75,
     low_quantile: float = 0.25,
 ) -> dict:
-    """
-    Compute a small set of summary statistics used by the dashboard's
-    `insights_page` (returns a dict of floats). Fields returned:
-      - corr_no2_traffic: Pearson correlation NO2 vs noise
-      - no2_traffic_factor: mean(NO2|high_noise)/mean(NO2|low_noise)
-      - corr_o3_sunlight: Pearson correlation O3 vs temperature
-      - o3_sunlight_factor: mean(O3|high_temp)/mean(O3|low_temp)
 
-    The function is robust to missing columns or small sample sizes and will
-    return np.nan for metrics it cannot compute.
-    """
-    # be forgiving if some columns are missing: return NaNs rather than raising
     required = [no2_col, noise_col, o3_col, temp_col]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        # return all keys with NaN so dashboard doesn't crash
-        return {
-            "corr_no2_traffic": float(np.nan),
-            "no2_traffic_factor": float(np.nan),
-            "corr_o3_sunlight": float(np.nan),
-            "o3_sunlight_factor": float(np.nan),
-        }
+    for c in required:
+        if c not in df.columns:
+            return {
+                "corr_no2_traffic": np.nan,
+                "no2_traffic_factor": np.nan,
+                "corr_o3_sunlight": np.nan,
+                "o3_sunlight_factor": np.nan,
+            }
 
     df = prepare_time_index(df)
 
     out = {
-        "corr_no2_traffic": float(np.nan),
-        "no2_traffic_factor": float(np.nan),
-        "corr_o3_sunlight": float(np.nan),
-        "o3_sunlight_factor": float(np.nan),
+        "corr_no2_traffic": float(df[no2_col].corr(df[noise_col])),
+        "corr_o3_sunlight": float(df[o3_col].corr(df[temp_col])),
     }
 
-    # correlation NO2 vs traffic (noise)
-    sub = df[[no2_col, noise_col]].dropna()
-    if len(sub) >= 2:
-        try:
-            out["corr_no2_traffic"] = float(sub[no2_col].corr(sub[noise_col]))
-        except Exception:
-            out["corr_no2_traffic"] = float(np.nan)
+    # High vs low noise grouping
+    hi_noise = df[df[noise_col] >= df[noise_col].quantile(high_quantile)][no2_col]
+    lo_noise = df[df[noise_col] <= df[noise_col].quantile(low_quantile)][no2_col]
 
-    # ratio: mean NO2 when noise is high vs low
-    try:
-        thresh = float(df[noise_col].quantile(high_quantile))
-        high_noisy = df.loc[df[noise_col] >= thresh, no2_col].dropna()
-        low_noisy = df.loc[df[noise_col] < thresh, no2_col].dropna()
-        if len(high_noisy) and len(low_noisy) and low_noisy.mean() != 0:
-            out["no2_traffic_factor"] = float(high_noisy.mean() / low_noisy.mean())
-        else:
-            out["no2_traffic_factor"] = float(np.nan)
-    except Exception:
-        out["no2_traffic_factor"] = float(np.nan)
+    if len(hi_noise) > 0 and len(lo_noise) > 0:
+        out["no2_traffic_factor"] = float(hi_noise.mean() / lo_noise.mean())
+    else:
+        out["no2_traffic_factor"] = np.nan
 
-    # correlation O3 vs temperature (proxy for sunlight)
-    sub2 = df[[o3_col, temp_col]].dropna()
-    if len(sub2) >= 2:
-        try:
-            out["corr_o3_sunlight"] = float(sub2[o3_col].corr(sub2[temp_col]))
-        except Exception:
-            out["corr_o3_sunlight"] = float(np.nan)
+    # High vs low temperature grouping (proxy for sunlight)
+    hi_temp = df[df[temp_col] >= df[temp_col].quantile(high_quantile)][o3_col]
+    lo_temp = df[df[temp_col] <= df[temp_col].quantile(low_quantile)][o3_col]
 
-    # ratio: mean O3 during high temperature vs low temperature
-    try:
-        high_t = float(df[temp_col].quantile(high_quantile))
-        low_t = float(df[temp_col].quantile(low_quantile))
-        high_temp_o3 = df.loc[df[temp_col] >= high_t, o3_col].dropna()
-        low_temp_o3 = df.loc[df[temp_col] <= low_t, o3_col].dropna()
-        if len(high_temp_o3) and len(low_temp_o3) and low_temp_o3.mean() != 0:
-            out["o3_sunlight_factor"] = float(high_temp_o3.mean() / low_temp_o3.mean())
-        else:
-            out["o3_sunlight_factor"] = float(np.nan)
-    except Exception:
-        out["o3_sunlight_factor"] = float(np.nan)
+    if len(hi_temp) > 0 and len(lo_temp) > 0:
+        out["o3_sunlight_factor"] = float(hi_temp.mean() / lo_temp.mean())
+    else:
+        out["o3_sunlight_factor"] = np.nan
 
     return out
+
+
+
+# ---------------------------------------------------------------------------
+# 5) EMISSION ANOMALY DETECTION  --------------------------------------------
+# ---------------------------------------------------------------------------
+
+def detect_emission_anomalies(
+    df: pd.DataFrame,
+    pollutant_cols=("no2_ugm3", "pm10_ugm3", "pm2_5_ugm3", "o3_ugm3"),
+    window=24,
+    threshold=3.5,
+):
+    """
+    Detect emission anomalies using rolling Median Absolute Deviation (MAD).
+    Adds *_anom columns for each pollutant.
+    """
+    df = df.copy()
+
+    for col in pollutant_cols:
+        if col not in df.columns:
+            continue
+
+        roll_med = df[col].rolling(window=window, min_periods=1).median()
+        mad = (np.abs(df[col] - roll_med)).rolling(window=window, min_periods=1).median()
+
+        modified_z = 0.6745 * (df[col] - roll_med) / (mad + 1e-6)
+        df[col + "_anom"] = (np.abs(modified_z) > threshold).astype(int)
+
+    return df
+
+
+
+# ---------------------------------------------------------------------------
+# 6) HEATWAVE EARLY WARNING --------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def detect_heatwave_periods(
+    df: pd.DataFrame,
+    temp_col="temperature_degC",
+    humidity_col="humidity_percent",
+    temp_thr=30,
+    hum_thr=40,
+    min_hours=3
+):
+    """
+    Detect heatwave episodes using temperature + humidity:
+    - temperature >= temp_thr
+    - humidity <= hum_thr
+    - persistence >= min_hours
+    """
+
+    df = prepare_time_index(df).copy()
+
+    df["hot"] = df[temp_col] >= temp_thr
+    df["dry"] = df[humidity_col] <= hum_thr
+    df["heatwave"] = df["hot"] & df["dry"]
+
+    s = df["heatwave"]
+    block_id = (s != s.shift()).cumsum()
+
+    episodes = (
+        df[s]
+        .groupby(block_id[s])
+        .agg(
+            start=("heatwave", "idxmin"),
+            end=("heatwave", "idxmax"),
+            hours=("heatwave", "size"),
+            avg_temp=(temp_col, "mean"),
+            avg_humidity=(humidity_col, "mean"),
+        )
+    )
+
+    episodes = episodes[episodes["hours"] >= min_hours].reset_index(drop=True)
+    return df, episodes
