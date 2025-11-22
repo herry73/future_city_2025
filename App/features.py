@@ -23,6 +23,7 @@ def prepare_time_index(df: pd.DataFrame, time_col: str = "timestamp") -> pd.Data
     return df.sort_index()
 
 
+
 def _median_step_minutes(index: pd.DatetimeIndex, default_minutes: float) -> float:
     if len(index) < 2:
         return float(default_minutes)
