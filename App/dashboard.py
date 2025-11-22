@@ -38,7 +38,6 @@ from features import (
     detect_air_risk_alerts,
     detect_night_noise_events,
     compute_tree_priority,
-    analyze_sensor_relationships,
 )
 
 # ---------------------------------------------------------
@@ -1564,15 +1563,6 @@ def planner_tree_priority_page(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def planner_sensor_relationship_page(df):
-    st.subheader("🔬 Sensor Relationship Explorer")
-
-    df_range = select_date_range(df)
-    stats = analyze_sensor_relationships(df_range)
-
-    st.write("These metrics highlight causal relationships between variables (e.g., traffic → NO₂).")
-    st.dataframe(pd.DataFrame([stats]))
-
 # ---------------------------------------------------------
 #  PLANNER DASHBOARD
 # ---------------------------------------------------------
@@ -1589,7 +1579,6 @@ def planner_dashboard(df):
             "Overview",
             "Correlation Analysis",
             "Tree Priority & Chronic Stress",
-            "Sensor Relationship Explorer",
             "Tree Priority Map",
             "Noise Time-Travel Map",
             "Green Walk – Best Time",
@@ -1603,8 +1592,6 @@ def planner_dashboard(df):
         planner_correlation_page(df)
     elif page == "Tree Priority & Chronic Stress":
         planner_tree_priority_page(df)
-    elif page == "Sensor Relationship Explorer":
-        planner_sensor_relationship_page(df)
     elif page == "Tree Priority Map":
         planner_tree_map_page(df)
     elif page == "Noise Time-Travel Map":
