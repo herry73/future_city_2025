@@ -928,48 +928,91 @@ def controller_incident_map_page(df_health):
     except Exception as e:
         st.warning(f"Could not render map: {e}")
 
-# =====================================================================
-#  PART 5 — CITY PLANNER DASHBOARD (eco theme, long-term planning)
-# =====================================================================
 
+# =====================================================================
+#  PLANNER: Noise Time-Travel Map Page (Restricted Date Range)
+# =====================================================================
 def planner_noise_time_travel_page():
     st.subheader("⏳ Temporal Noise Map (Time Travel)")
 
-    st.markdown("Use the slider to see how Heilbronn's soundscape changes throughout the day.")
+    st.markdown("Select a historical date and time to analyze noise patterns.")
 
-    time_options = {
-        "09:00": 9,
-        "12:00": 12,
-        "15:00": 15,
-        "00:00 (Midnight)": 0
-    }
+    # Layout: Date on left, Time on right
+    c1, c2 = st.columns([1, 2])
 
-    selected_label = st.select_slider(
-        "Select Time of Day",
-        options=list(time_options.keys()),
-        value="12:00"
-    )
+    with c1:
+        # --- 关键修改开始 ---
+        # 1. 定义时间边界
+        min_d = date(2021, 1, 1)
+        max_d = date(2023, 12, 31)
+        default_d = date(2023, 6, 15)  # 设置一个范围内的默认日期
 
-    selected_hour = time_options[selected_label]
+        # 2. Calendar Widget (带限制)
+        selected_date = st.date_input(
+            "Select Historical Date",
+            value=default_d,
+            min_value=min_d,
+            max_value=max_d,
+            help="Data available from Jan 2021 to Dec 2023"
+        )
+        # --- 关键修改结束 ---
 
-    map_data, scenario_desc = simulate_hourly_noise_data(selected_hour, n_points=500)
+        # Display Day of Week tag
+        day_name = selected_date.strftime("%A")  # e.g., "Monday"
+        is_weekend = selected_date.weekday() >= 5
 
+        if is_weekend:
+            st.caption(f"📅 **{day_name}** (Weekend Mode)")
+        else:
+            st.caption(f"📅 **{day_name}** (Weekday Mode)")
+
+    with c2:
+        # 2. Time Selector
+        time_options = {
+            "09:00": 9,
+            "12:00": 12,
+            "15:00": 15,
+            "00:00 (Midnight)": 0
+        }
+        selected_label = st.select_slider(
+            "Select Time of Day",
+            options=list(time_options.keys()),
+            value="12:00"
+        )
+        selected_hour = time_options[selected_label]
+
+    # 3. Get Data
+    map_data, scenario_desc = simulate_hourly_noise_data(selected_hour, selected_date, n_points=500)
+
+    # Display KPI
     avg_noise = map_data["noise_db"].mean()
-    col1, col2 = st.columns(2)
-    col1.metric("Scenario", scenario_desc)
-    col2.metric("City Average Noise", f"{avg_noise:.1f} dB")
 
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Context", scenario_desc)
+    kpi2.metric("Avg Noise Level", f"{avg_noise:.1f} dB")
+
+    # Dynamic recommendation
+    if selected_hour == 9 and not is_weekend:
+        rec = "High traffic. Deploy traffic wardens."
+    elif selected_hour == 0 and is_weekend:
+        rec = "High nightlife noise. Monitor club zones."
+    else:
+        rec = "Normal levels. Standard monitoring."
+    kpi3.metric("System Advice", "View Map", delta=rec, delta_color="off")
+
+    # 4. Color Logic
     def get_noise_color(db):
         if db < 50:
-            return [0, 255, 128, 140]  # Quiet (Green)
+            return [0, 255, 128, 140]
         elif db < 70:
-            return [255, 200, 0, 160]  # Moderate (Yellow)
+            return [255, 200, 0, 160]
         else:
-            return [255, 0, 0, 200]  # Loud (Red)
+            return [255, 0, 0, 200]
 
     map_data["color"] = map_data["noise_db"].apply(get_noise_color)
     map_data = map_data.round({"latitude": 4, "longitude": 4, "noise_db": 1})
 
+    # 5. Map Config
     layer = pdk.Layer(
         "ScatterplotLayer",
         map_data,
@@ -985,18 +1028,16 @@ def planner_noise_time_travel_page():
     )
 
     view_state = pdk.ViewState(
-        latitude=49.1427,
-        longitude=9.2109,
-        zoom=13,
-        pitch=45
+        latitude=49.1427, longitude=9.2109, zoom=13, pitch=45
     )
 
     tooltip = {
         "html": "<b>🔊 Noise Level: {noise_db} dB</b><br/>"
-                "🕒 Time: " + selected_label + "<br/>"
-                "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
-                "🌐 Lat: {latitude}<br/>"
-                "🌐 Lon: {longitude}",
+                "📅 Date: " + str(selected_date) + "<br/>"
+                                                  "🕒 Time: " + selected_label + "<br/>"
+                                                                                "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
+                                                                                "🌐 Lat: {latitude}<br/>"
+                                                                                "🌐 Lon: {longitude}",
         "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px",
                   "zIndex": "9999"}
     }
@@ -1010,7 +1051,6 @@ def planner_noise_time_travel_page():
     )
 
     st.pydeck_chart(r)
-
 def planner_dashboard(df):
     apply_planner_theme()
     fix_label_colors()
@@ -1241,50 +1281,70 @@ def simulate_city_grid(n_points=200):
         "tree_priority": priority
     })
 
-# ---------------------------------------------------------
-#  HELPER: SIMULATE NOISE BY HOUR (TEMPORAL LOGIC)
-# ---------------------------------------------------------
 
-def simulate_hourly_noise_data(hour, n_points=400):
+# =====================================================================
+#  HELPER: SIMULATE NOISE BY HOUR & DATE (UPDATED)
+# =====================================================================
+def simulate_hourly_noise_data(hour, date_obj, n_points=400):
     """
-    Generates noise data for Heilbronn based on the time of day.
-    Logic:
-    - 09:00: High traffic noise on main roads (Morning Rush).
-    - 12:00: High activity in city center (Lunch/Shops).
-    - 15:00: Moderate traffic + School run.
-    - 00:00: Generally quiet, but some hotspots (Bars/Clubs).
+    Generates noise data based on Time of Day AND Day of Week.
     """
+    # Heilbronn Center
     CENTER_LAT = 49.1427
     CENTER_LON = 9.2109
 
+    # Determine if it's a weekend (5=Saturday, 6=Sunday)
+    is_weekend = date_obj.weekday() >= 5
+
+    # Generate base grid
     lat_offsets = np.random.normal(0, 0.015, n_points)
     lon_offsets = np.random.normal(0, 0.025, n_points)
     lats = CENTER_LAT + lat_offsets
     lons = CENTER_LON + lon_offsets
 
     dists = np.sqrt(lat_offsets ** 2 + lon_offsets ** 2)
-    urban_density = 1 - (dists / dists.max())  # 1 = Center, 0 = Outskirts
+    urban_density = 1 - (dists / dists.max())
 
+    # Base Noise
     base_noise = np.clip(urban_density * 60 + np.random.normal(0, 5, n_points), 30, 70)
 
     final_noise = base_noise.copy()
+    scenario = "Normal"
+
+    # --- TIME & DATE LOGIC ---
 
     if hour == 9:
-        final_noise += 15
-        scenario = "🚗 Morning Rush Hour"
+        if is_weekend:
+            final_noise -= 5  # Weekend mornings are quieter
+            scenario = "☕ Lazy Weekend Morning"
+        else:
+            final_noise += 15
+            scenario = "🚗 Weekday Morning Rush Hour"
+
     elif hour == 12:
-        final_noise += (urban_density * 20)
-        scenario = "🍽️ City Center Bustle"
+        if is_weekend:
+            final_noise += (urban_density * 25)  # Weekends are louder in city center (shopping/tourists)
+            scenario = "🛍️ Weekend Shopping Peak"
+        else:
+            final_noise += (urban_density * 20)
+            scenario = "🍽️ Weekday Lunch Bustle"
+
     elif hour == 15:
         final_noise += 10
         scenario = "🚌 Afternoon Activity"
+
     elif hour == 0 or hour == 24:
         final_noise -= 20
-        nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.05), replace=False)
-        final_noise[nightlife_indices] = 85
-        scenario = "🌙 Midnight (Mostly Quiet)"
-    else:
-        scenario = "Normal"
+        # Nightlife hotspots (more active on Friday/Saturday nights)
+        # date_obj.weekday() 4=Friday, 5=Saturday
+        if date_obj.weekday() in [4, 5]:
+            nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.10), replace=False)  # More bars active
+            final_noise[nightlife_indices] = 90
+            scenario = "🎉 Weekend Nightlife"
+        else:
+            nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.02), replace=False)
+            final_noise[nightlife_indices] = 80
+            scenario = "🌙 Weekday Midnight (Quiet)"
 
     final_noise = np.clip(final_noise, 30, 95)
 
