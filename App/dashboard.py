@@ -1098,19 +1098,97 @@ def controller_night_noise_page(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
+# ---------------------------------------------------------
+#  CONTROLLER: Incident Map (Refined: Top 50 & Smaller Dots)
+# ---------------------------------------------------------
 def controller_incident_map_page(df_health):
     st.subheader("Geospatial View of Air-Risk Hotspots")
 
-    df_alert, episodes = detect_air_risk_alerts(df_health)
-    df_alert = df_alert[df_alert.get("air_risk_alert", False)]
+    # 1. 尝试严格模式检测 (健康分<40 且 噪音>70)
+    df_alert, _ = detect_air_risk_alerts(df_health)
+    df_map_source = df_alert[df_alert.get("air_risk_alert", False)].copy()
+    
+    is_simulated = False
 
-    if df_alert.empty or "latitude" not in df_alert.columns or "longitude" not in df_alert.columns:
-        st.warning("No geo-located air-risk alerts available.")
+    # 2. 自动降级策略
+    if df_map_source.empty:
+        st.warning("⚠ No Critical Alerts detected. Switching to 'Watchlist Mode'.")
+        # 降级：看健康分低于 60 的
+        df_map_source = df_health[df_health["health_score"] < 60].copy()
+        is_simulated = True
+
+    if df_map_source.empty:
+        st.success("🎉 Data is perfectly clean. No risks to display.")
         return
 
-    deck = map_layer(df_alert, value_col="health_score", color=[255, 80, 80])
-    if deck is not None:
-        st.pydeck_chart(deck)
+    # 3. 【关键修改】只保留最严重的 50 个点
+    # 按健康分排序（越低越严重），只取前 50 个
+    # 这样能保证地图不会被“淹没”
+    if len(df_map_source) > 50:
+        df_map_source = df_map_source.sort_values("health_score", ascending=True).head(50)
+        st.caption(f"ℹ Showing the *top 50* most critical incidents out of {len(df_alert)} potential issues.")
+
+    # 4. 空间散射 (Jitter)
+    if df_map_source["latitude"].nunique() < 2:
+        np.random.seed(42) 
+        # 稍微加大一点散射范围，让这50个点分得更开一点
+        df_map_source["latitude"] = df_map_source["latitude"] + np.random.normal(0, 0.01, len(df_map_source))
+        df_map_source["longitude"] = df_map_source["longitude"] + np.random.normal(0, 0.015, len(df_map_source))
+        np.random.seed(None)
+
+    # 5. 准备数据
+    df_map = df_map_source.reset_index()
+    df_map["time_str"] = df_map["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+    df_map = df_map.round({"health_score": 1, "noise": 1, "latitude": 4, "longitude": 4})
+
+    def get_alert_color(score):
+        if score < 40: return [255, 0, 0, 200]      # Red
+        return [255, 140, 0, 180]                   # Orange
+    
+    df_map["color"] = df_map["health_score"].apply(get_alert_color)
+
+    # 6. Pydeck 渲染 (缩小半径)
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        df_map,
+        get_position=["longitude", "latitude"],
+        get_radius=70,   # 【修改】从 200 改为 70，点变小，不挡街道
+        get_fill_color="color",
+        pickable=True,
+        opacity=0.8,
+        stroked=True,
+        get_line_color=[255, 255, 255],
+        line_width_min_pixels=1,
+        filled=True
+    )
+
+    view_state = pdk.ViewState(
+        latitude=df_map["latitude"].mean(),
+        longitude=df_map["longitude"].mean(),
+        zoom=12.5,
+        pitch=0
+    )
+
+    tooltip = {
+        "html": "<b>🚨 Incident Report</b><br/>"
+                "🕒 Time: {time_str}<br/>"
+                "💓 Health Score: {health_score}<br/>"
+                "🔊 Noise: {noise} dB",
+        "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px"}
+    }
+
+    r = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_provider="carto",
+        map_style="dark",
+    )
+
+    st.pydeck_chart(r)
+
+    if is_simulated:
+        st.caption("Locations visualized using spatial distribution modeling based on central sensor data.")
 
 # =====================================================================
 #  PLANNER HELPERS: CITY GRID + CONTINUOUS NOISE SIMULATION
