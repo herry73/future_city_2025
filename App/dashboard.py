@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from plots import ts_plot, corr_heatmap
-
+from features import analyze_sensor_relationships
 
 @st.cache_data
 def load_data():
@@ -95,6 +95,32 @@ def insights_page(df):
     st.markdown("Correlation between pollutants and weather variables.")
     fig = corr_heatmap(df, cols, "Correlation between sensors")
     st.pyplot(fig)
+
+    # 🔍 Extra: relationships NO2↔traffic (noise), O3↔sunlight (temperature)
+    stats = analyze_sensor_relationships(df)
+
+    st.subheader("Sensor relationships")
+
+    col1, col2 = st.columns(2)
+
+    col1.metric(
+        "NO₂ vs Traffic (noise) correlation",
+        f"{stats['corr_no2_traffic']:.2f}",
+    )
+    col1.metric(
+        "NO₂ high traffic / low traffic",
+        f"{stats['no2_traffic_factor']:.2f}×",
+    )
+
+    col2.metric(
+        "O₃ vs Sunlight (temperature) correlation",
+        f"{stats['corr_o3_sunlight']:.2f}",
+    )
+    col2.metric(
+        "O₃ high sun / low sun",
+        f"{stats['o3_sunlight_factor']:.2f}×",
+    )
+
 
 
 def main():

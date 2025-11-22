@@ -23,7 +23,6 @@ def prepare_time_index(df: pd.DataFrame, time_col: str = "timestamp") -> pd.Data
     return df.sort_index()
 
 
-
 def _median_step_minutes(index: pd.DatetimeIndex, default_minutes: float) -> float:
     if len(index) < 2:
         return float(default_minutes)
@@ -37,57 +36,73 @@ def _median_step_minutes(index: pd.DatetimeIndex, default_minutes: float) -> flo
 
 def add_health_score(
     df: pd.DataFrame,
-    no2_col: str = "NO2",
-    pm10_col: str = "PM10",
+    no2_col: str = "no2_ugm3",
+    pm25_col: str = "pm2_5_ugm3",
+    pm10_col: str = "pm10_ugm3",
+    o3_col: str = "o3_ugm3",
     low_q: float = 0.05,
     high_q: float = 0.95,
 ) -> pd.DataFrame:
     """
     Add PollutionIndex and HealthScore (0–100, higher = better air)
-    based on NO2 and PM10, using 5–95 percentile scaling.
-    Works with your current clean_data_dummy.csv columns.
+    using NO2, PM2.5, PM10 and O3 from the synthetic smart-city dataset.
+
+    Columns required:
+        - no2_ugm3
+        - pm2_5_ugm3
+        - pm10_ugm3
+        - o3_ugm3
     """
-    _require_columns(df, (no2_col, pm10_col))
+
+    required = [no2_col, pm25_col, pm10_col, o3_col]
+    for col in required:
+        if col not in df.columns:
+            raise ValueError(f"Missing column: {col}")
+
     df = df.copy()
 
-    poll_cols = [no2_col, pm10_col]
+    poll_cols = [no2_col, pm25_col, pm10_col, o3_col]
 
-    # compute percentiles for scaling (safe for empty/constant data)
+    # compute 5–95 percentile bounds
     bounds = {}
     for col in poll_cols:
-        series = df[col]
-        if series.dropna().empty:
-            low = np.nan
-            high = np.nan
+        s = df[col]
+        if s.dropna().empty:
+            low = high = np.nan
         else:
-            low = float(series.quantile(low_q))
-            high = float(series.quantile(high_q))
+            low = float(s.quantile(low_q))
+            high = float(s.quantile(high_q))
         bounds[col] = (low, high)
 
     def scaled(series: pd.Series, col: str) -> pd.Series:
         low, high = bounds[col]
-        # if bounds are invalid or equal, fallback to min/max scaling (or zeros for all-na)
-        if not np.isfinite(low) or not np.isfinite(high) or high == low:
+        if not np.isfinite(low) or not np.isfinite(high) or low == high:
+            # fallback: normalise by min/max
             if series.isna().all():
                 return pd.Series(0.0, index=series.index)
-            smin = series.min()
-            smax = series.max()
+            smin, smax = series.min(), series.max()
             denom = (smax - smin) if smax != smin else 1.0
-            return np.clip((series - smin) / denom, 0.0, 1.0)
-        denom = high - low
-        return np.clip((series - low) / denom, 0.0, 1.0)
+            return np.clip((series - smin) / denom, 0, 1)
+        return np.clip((series - low) / (high - low), 0, 1)
 
+    # Scale columns
     for col in poll_cols:
         df[col + "_scaled"] = scaled(df[col], col)
 
-    # weights: 0.6 NO2, 0.4 PM10 (you can tweak)
+    # Weighted pollution index (0 = clean, 1 = dirty)
     df["pollution_index"] = (
-        0.6 * df[no2_col + "_scaled"] +
-        0.4 * df[pm10_col + "_scaled"]
+        0.35 * df[no2_col + "_scaled"] +
+        0.30 * df[pm25_col + "_scaled"] +
+        0.25 * df[pm10_col + "_scaled"] +
+        0.10 * df[o3_col + "_scaled"]
     )
 
+    # Final Health Score (bigger = better)
     df["health_score"] = (1 - df["pollution_index"]) * 100
+
     return df
+
+
 
 
 # 1) SMART CITY CONTROLLER ALERTS  ------------------------------------------
@@ -209,8 +224,95 @@ def compute_tree_priority(
     df["bad_air"] = df["health_score"] < health_threshold
     df["loud"] = df[noise_col] > noise_threshold
 
-    chronic_air = float(df["bad_air"].mean())    # 0..1
-    chronic_noise = float(df["loud"].mean())    # 0..1
+    chronic_air = float(df["bad_air"].mean())     # 0..1
+    chronic_noise = float(df["loud"].mean())     # 0..1
 
     tree_priority = 100 * (0.6 * chronic_air + 0.4 * chronic_noise)
     return chronic_air, chronic_noise, tree_priority
+
+
+# 4) SENSOR RELATIONSHIP EXPLORER  ------------------------------------------
+
+def analyze_sensor_relationships(
+    df: pd.DataFrame,
+    no2_col: str = "NO2",
+    noise_col: str = "noise",
+    o3_col: str = "O3",
+    temp_col: str = "temperature",
+    high_quantile: float = 0.75,
+    low_quantile: float = 0.25,
+) -> dict:
+    """
+    Compute a small set of summary statistics used by the dashboard's
+    `insights_page` (returns a dict of floats). Fields returned:
+      - corr_no2_traffic: Pearson correlation NO2 vs noise
+      - no2_traffic_factor: mean(NO2|high_noise)/mean(NO2|low_noise)
+      - corr_o3_sunlight: Pearson correlation O3 vs temperature
+      - o3_sunlight_factor: mean(O3|high_temp)/mean(O3|low_temp)
+
+    The function is robust to missing columns or small sample sizes and will
+    return np.nan for metrics it cannot compute.
+    """
+    # be forgiving if some columns are missing: return NaNs rather than raising
+    required = [no2_col, noise_col, o3_col, temp_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        # return all keys with NaN so dashboard doesn't crash
+        return {
+            "corr_no2_traffic": float(np.nan),
+            "no2_traffic_factor": float(np.nan),
+            "corr_o3_sunlight": float(np.nan),
+            "o3_sunlight_factor": float(np.nan),
+        }
+
+    df = prepare_time_index(df)
+
+    out = {
+        "corr_no2_traffic": float(np.nan),
+        "no2_traffic_factor": float(np.nan),
+        "corr_o3_sunlight": float(np.nan),
+        "o3_sunlight_factor": float(np.nan),
+    }
+
+    # correlation NO2 vs traffic (noise)
+    sub = df[[no2_col, noise_col]].dropna()
+    if len(sub) >= 2:
+        try:
+            out["corr_no2_traffic"] = float(sub[no2_col].corr(sub[noise_col]))
+        except Exception:
+            out["corr_no2_traffic"] = float(np.nan)
+
+    # ratio: mean NO2 when noise is high vs low
+    try:
+        thresh = float(df[noise_col].quantile(high_quantile))
+        high_noisy = df.loc[df[noise_col] >= thresh, no2_col].dropna()
+        low_noisy = df.loc[df[noise_col] < thresh, no2_col].dropna()
+        if len(high_noisy) and len(low_noisy) and low_noisy.mean() != 0:
+            out["no2_traffic_factor"] = float(high_noisy.mean() / low_noisy.mean())
+        else:
+            out["no2_traffic_factor"] = float(np.nan)
+    except Exception:
+        out["no2_traffic_factor"] = float(np.nan)
+
+    # correlation O3 vs temperature (proxy for sunlight)
+    sub2 = df[[o3_col, temp_col]].dropna()
+    if len(sub2) >= 2:
+        try:
+            out["corr_o3_sunlight"] = float(sub2[o3_col].corr(sub2[temp_col]))
+        except Exception:
+            out["corr_o3_sunlight"] = float(np.nan)
+
+    # ratio: mean O3 during high temperature vs low temperature
+    try:
+        high_t = float(df[temp_col].quantile(high_quantile))
+        low_t = float(df[temp_col].quantile(low_quantile))
+        high_temp_o3 = df.loc[df[temp_col] >= high_t, o3_col].dropna()
+        low_temp_o3 = df.loc[df[temp_col] <= low_t, o3_col].dropna()
+        if len(high_temp_o3) and len(low_temp_o3) and low_temp_o3.mean() != 0:
+            out["o3_sunlight_factor"] = float(high_temp_o3.mean() / low_temp_o3.mean())
+        else:
+            out["o3_sunlight_factor"] = float(np.nan)
+    except Exception:
+        out["o3_sunlight_factor"] = float(np.nan)
+
+    return out
