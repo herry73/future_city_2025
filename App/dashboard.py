@@ -231,7 +231,7 @@ def load_data():
     return df
 
 # =====================================================================
-#  PART 2 — LANDING PAGE + ROLE ROUTING BASICS
+#  PART 2 — LANDING PAGE + ROLE SELECTION (patched for rerun)
 # =====================================================================
 
 def init_session_state():
@@ -246,14 +246,34 @@ def init_session_state():
         st.session_state.planner_page = "Overview"
 
 
+# ---------- PATCH: proper rerun-safe callbacks ----------
+
+def set_role(role):
+    """Instantly update role and rerun app."""
+    st.session_state.role = role
+    st.rerun()
+
+
+def reset_role():
+    """Reset the role and rerun to landing page."""
+    st.session_state.role = None
+    st.rerun()
+
+
+# --------------------------------------------------------
+
 def role_card(title, emoji, description, role_key, bg_color, text_color):
-    """Reusable clickable role card for landing page."""
-    clicked = st.button(
+    """Clickable card used on landing page."""
+
+    # Button (patched to use callback instead of state check)
+    st.button(
         f"{emoji}  {title}",
-        key=f"role_{role_key}",
-        use_container_width=True
+        key=f"role_btn_{role_key}",
+        use_container_width=True,
+        on_click=lambda r=role_key: set_role(r)
     )
-    # Description under the button
+
+    # Description box below each button
     st.markdown(
         f"""
         <div style="
@@ -270,7 +290,6 @@ def role_card(title, emoji, description, role_key, bg_color, text_color):
         """,
         unsafe_allow_html=True
     )
-    return clicked
 
 
 def landing_page():
@@ -283,7 +302,7 @@ def landing_page():
     )
     st.markdown(
         "<p style='text-align:center; font-size:18px; margin-top:4px;'>"
-        "Choose your perspective to explore Heilbronn's air, heat and noise."
+        "Choose your perspective to explore Heilbronn's environment."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -293,43 +312,40 @@ def landing_page():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if role_card(
+        role_card(
             title="Resident",
             emoji="👤",
-            description="See if today feels safe and comfortable: air quality, heat and noise in simple terms.",
+            description="Simple, friendly insights about today's air, heat and noise.",
             role_key="resident",
-            bg_color=PASTEL["card"],
-            text_color=PASTEL["text"],
-        ):
-            st.session_state.role = "resident"
+            bg_color=PASTEL['card'],
+            text_color=PASTEL['text'],
+        )
 
     with col2:
-        if role_card(
+        role_card(
             title="Smart City Controller",
             emoji="🚨",
-            description="Monitor live alerts, air-risk episodes and night-time noise disturbances.",
+            description="Live alerts, air-risk episodes and noise disturbances.",
             role_key="controller",
-            bg_color=DARK_NEON["card"],
-            text_color=DARK_NEON["text"],
-        ):
-            st.session_state.role = "controller"
+            bg_color=DARK_NEON['card'],
+            text_color=DARK_NEON['text'],
+        )
 
     with col3:
-        if role_card(
+        role_card(
             title="City Planner",
             emoji="🏙️",
-            description="Understand long-term stress, correlations and where to plant trees first.",
+            description="Long-term trends, correlations and tree priority hotspots.",
             role_key="planner",
-            bg_color=PLANNER["card"],
-            text_color=PLANNER["text"],
-        ):
-            st.session_state.role = "planner"
+            bg_color=PLANNER['card'],
+            text_color=PLANNER['text'],
+        )
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
 
     st.markdown(
         "<p style='text-align:center; font-size:13px; opacity:0.7;'>"
-        "You can always go back and change your role later."
+        "You can always return here using the sidebar."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -778,11 +794,10 @@ def planner_tree_map_page(df):
         st.warning(f"Could not render map: {e}")
 
 # =====================================================================
-#  PART 6 — MAIN APP ASSEMBLY (routing + themes + back button)
+#  PART 6 — MAIN APP ASSEMBLY (patched for rerun & clean routing)
 # =====================================================================
 
 def main():
-    # Optional: you can move this to the very top of the file if Streamlit warns
     st.set_page_config(
         page_title="Future City Intelligence Dashboard",
         layout="wide",
@@ -794,24 +809,22 @@ def main():
     # Load unified data once
     df = load_data()
 
-    # If no role chosen yet → show landing
+    # If no role chosen → show landing
     if st.session_state.role is None:
         landing_page()
         return
 
-    # Global sidebar for all roles
+    # Sidebar shared across roles
     st.sidebar.title("Future City Intelligence")
     st.sidebar.markdown(f"**Active Role:** `{st.session_state.role.capitalize()}`")
 
-    if st.sidebar.button("⬅ Back to Role Selection"):
-        st.session_state.role = None
-        st.experimental_rerun()
-
+    # ---------- PATCH: back button uses callback ----------
+    st.sidebar.button("⬅ Back to Role Selection", on_click=reset_role)
     st.sidebar.markdown("---")
 
+    # Route to dashboards
     role = st.session_state.role
 
-    # Route to role-specific dashboard
     if role == "resident":
         resident_dashboard(df)
 
@@ -823,6 +836,5 @@ def main():
 
 
 # =====================================================================
-
 if __name__ == "__main__":
     main()
