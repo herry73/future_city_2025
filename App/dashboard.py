@@ -1,7 +1,7 @@
 # ====================================================================
 #  PART 1 — IMPORTS + THEMES + UTILITIES + UNIFIED DATA LOADER
 # ====================================================================
-
+import time
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -19,7 +19,8 @@ import plotly.graph_objects as go
 def load_local_css(file_path: str):
     """Loads a local CSS file into the Streamlit app."""
     try:
-        with open(file_path) as f:
+        # 把 file_name 改成 file_path
+        with open(file_path, encoding='utf-8') as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
         st.warning(f"⚠️ CSS file not found: {file_path}")
@@ -1173,127 +1174,136 @@ def controller_incident_map_page(df_health):
 
 
 # =====================================================================
-#  PLANNER: Noise Time-Travel Map Page (Restricted Date Range)
+#  PLANNER: Noise Time-Travel Map (Smooth Range Playback)
 # =====================================================================
 def planner_noise_time_travel_page():
     st.subheader("⏳ Temporal Noise Map (Time Travel)")
+    st.markdown("Define a time window and watch the urban soundscape evolve hour by hour.")
 
-    st.markdown("Select a historical date and time to analyze noise patterns.")
-
-    # Layout: Date on left, Time on right
+    # Layout
     c1, c2 = st.columns([1, 2])
 
     with c1:
-        # --- 关键修改开始 ---
-        # 1. 定义时间边界
+        # Date Picker
         min_d = date(2021, 1, 1)
         max_d = date(2023, 12, 31)
-        default_d = date(2023, 6, 15)  # 设置一个范围内的默认日期
+        default_d = date(2023, 6, 15)
+        selected_date = st.date_input("Select Historical Date", value=default_d, min_value=min_d, max_value=max_d)
 
-        # 2. Calendar Widget (带限制)
-        selected_date = st.date_input(
-            "Select Historical Date",
-            value=default_d,
-            min_value=min_d,
-            max_value=max_d,
-            help="Data available from Jan 2021 to Dec 2023"
-        )
-        # --- 关键修改结束 ---
-
-        # Display Day of Week tag
-        day_name = selected_date.strftime("%A")  # e.g., "Monday"
-        is_weekend = selected_date.weekday() >= 5
-
-        if is_weekend:
-            st.caption(f"📅 **{day_name}** (Weekend Mode)")
-        else:
-            st.caption(f"📅 **{day_name}** (Weekday Mode)")
+        day_name = selected_date.strftime("%A")
+        st.caption(f"📅 **{day_name}** ({'Weekend' if selected_date.weekday() >= 5 else 'Weekday'})")
 
     with c2:
-        # 2. Time Selector
-        time_options = {
-            "09:00": 9,
-            "12:00": 12,
-            "15:00": 15,
-            "00:00 (Midnight)": 0
-        }
-        selected_label = st.select_slider(
-            "Select Time of Day",
-            options=list(time_options.keys()),
-            value="12:00"
+        # --- Range Slider for Time Window ---
+        # User selects start and end hour (e.g., 06:00 to 22:00)
+        start_h, end_h = st.slider(
+            "Select Time Range to Simulate",
+            min_value=0, max_value=23,
+            value=(6, 22),  # Default: 6 AM to 10 PM
+            format="%02d:00"
         )
-        selected_hour = time_options[selected_label]
 
-    # 3. Get Data
-    map_data, scenario_desc = simulate_hourly_noise_data(selected_hour, selected_date, n_points=500)
+        # Play Button
+        st.write("")
+        play_btn = st.button("▶️ Play Simulation", type="primary", use_container_width=True)
 
-    # Display KPI
-    avg_noise = map_data["noise_db"].mean()
+    # Placeholders
+    kpi_placeholder = st.empty()
+    map_placeholder = st.empty()
 
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Context", scenario_desc)
-    kpi2.metric("Avg Noise Level", f"{avg_noise:.1f} dB")
+    # --- Render Function ---
+    def render_map_frame(hour, data):
+        # Format hour for display
+        time_str = f"{hour:02d}:00"
 
-    # Dynamic recommendation
-    if selected_hour == 9 and not is_weekend:
-        rec = "High traffic. Deploy traffic wardens."
-    elif selected_hour == 0 and is_weekend:
-        rec = "High nightlife noise. Monitor club zones."
+        # Round data for performance and clean tooltip
+        data = data.round({"latitude": 4, "longitude": 4, "noise_db": 1})
+
+        # Color Logic
+        def get_col(db):
+            if db < 50:
+                return [0, 255, 128, 140]  # Quiet Green
+            elif db < 65:
+                return [255, 200, 0, 160]  # Moderate Yellow
+            elif db < 75:
+                return [255, 100, 0, 180]  # Loud Orange
+            else:
+                return [255, 0, 0, 200]  # Very Loud Red
+
+        data["color"] = data["noise_db"].apply(get_col)
+
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            data,
+            get_position=["longitude", "latitude"],
+            get_radius=120,
+            get_fill_color="color",
+            pickable=True,
+            opacity=0.8,
+            filled=True,
+            # Adding transition ensures smoothness if data points match
+            transitions={'get_fill_color': 200}
+        )
+
+        view_state = pdk.ViewState(latitude=49.1427, longitude=9.2109, zoom=13, pitch=45)
+
+        tooltip = {
+            "html": f"<b>🔊 Noise: {{noise_db}} dB</b><br/>Time: {time_str}",
+            "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px"}
+        }
+
+        return pdk.Deck(
+            layers=[layer],
+            initial_view_state=view_state,
+            tooltip=tooltip,
+            map_provider="carto",
+            map_style="dark",
+        )
+
+    # --- Animation Logic ---
+    if play_btn:
+        # Loop from start_hour to end_hour
+        progress_bar = st.progress(0)
+        total_steps = end_h - start_h + 1
+
+        for i, hour in enumerate(range(start_h, end_h + 1)):
+            # Update Progress
+            progress_bar.progress((i + 1) / total_steps)
+
+            # 1. Generate Data for this specific hour
+            map_data, scenario = simulate_continuous_noise(hour, selected_date, n_points=500)
+
+            # 2. Update KPIs
+            avg_noise = map_data["noise_db"].mean()
+            with kpi_placeholder.container():
+                k1, k2, k3 = st.columns(3)
+                k1.metric("🕒 Clock", f"{hour:02d}:00")
+                k2.metric("Scenario", scenario)
+                k3.metric("Avg Noise", f"{avg_noise:.1f} dB")
+
+            # 3. Update Map
+            r = render_map_frame(hour, map_data)
+            map_placeholder.pydeck_chart(r)
+
+            # 4. Control Speed (Lower = Smoother/Faster)
+            time.sleep(0.25)
+
+        progress_bar.empty()
+        st.success(f"✅ Simulation from {start_h:02d}:00 to {end_h:02d}:00 complete.")
+
     else:
-        rec = "Normal levels. Standard monitoring."
-    kpi3.metric("System Advice", "View Map", delta=rec, delta_color="off")
+        # --- Static View (Show Start Time by default) ---
+        map_data, scenario = simulate_continuous_noise(start_h, selected_date, n_points=500)
+        avg_noise = map_data["noise_db"].mean()
 
-    # 4. Color Logic
-    def get_noise_color(db):
-        if db < 50:
-            return [0, 255, 128, 140]
-        elif db < 70:
-            return [255, 200, 0, 160]
-        else:
-            return [255, 0, 0, 200]
+        with kpi_placeholder.container():
+            k1, k2, k3 = st.columns(3)
+            k1.metric("🕒 Clock", f"{start_h:02d}:00")
+            k2.metric("Scenario", scenario)
+            k3.metric("Avg Noise", f"{avg_noise:.1f} dB")
 
-    map_data["color"] = map_data["noise_db"].apply(get_noise_color)
-    map_data = map_data.round({"latitude": 4, "longitude": 4, "noise_db": 1})
-
-    # 5. Map Config
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        map_data,
-        get_position=["longitude", "latitude"],
-        get_radius=100,
-        get_fill_color="color",
-        pickable=True,
-        opacity=0.8,
-        stroked=True,
-        get_line_color=[255, 255, 255],
-        line_width_min_pixels=1,
-        filled=True,
-    )
-
-    view_state = pdk.ViewState(
-        latitude=49.1427, longitude=9.2109, zoom=13, pitch=45
-    )
-
-    tooltip = {
-        "html": "<b>🔊 Noise Level: {noise_db} dB</b><br/>"
-                "📅 Date: " + str(selected_date) + "<br/>"
-                                                  "🕒 Time: " + selected_label + "<br/>"
-                                                                                "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
-                                                                                "🌐 Lat: {latitude}<br/>"
-                                                                                "🌐 Lon: {longitude}",
-        "style": {"backgroundColor": "#1f2937", "color": "white", "fontSize": "12px", "padding": "10px",
-                  "zIndex": "9999"}
-    }
-
-    r = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        tooltip=tooltip,
-        map_provider="carto",
-        map_style="dark",
-    )
-
-    st.pydeck_chart(r)
+        r = render_map_frame(start_h, map_data)
+        map_placeholder.pydeck_chart(r)
 def planner_dashboard(df):
     apply_planner_theme()
     fix_label_colors()
@@ -1530,77 +1540,83 @@ def simulate_city_grid(n_points=200):
 
 
 # =====================================================================
-#  HELPER: SIMULATE NOISE BY HOUR & DATE (UPDATED)
+#  HELPER: SIMULATE CONTINUOUS NOISE (24H LOGIC)
 # =====================================================================
-def simulate_hourly_noise_data(hour, date_obj, n_points=400):
+def simulate_continuous_noise(hour, date_obj, n_points=400):
     """
-    Generates noise data based on Time of Day AND Day of Week.
+    Generates noise data for ANY hour (0-23) with continuous logic.
+    This allows for smooth animation across the day.
     """
-    # Heilbronn Center
     CENTER_LAT = 49.1427
     CENTER_LON = 9.2109
-
-    # Determine if it's a weekend (5=Saturday, 6=Sunday)
     is_weekend = date_obj.weekday() >= 5
 
-    # Generate base grid
+    # Fixed random seed for locations (so points don't jump around)
+    # We only want the COLORS to change, not the positions.
+    np.random.seed(42)
+
     lat_offsets = np.random.normal(0, 0.015, n_points)
     lon_offsets = np.random.normal(0, 0.025, n_points)
     lats = CENTER_LAT + lat_offsets
     lons = CENTER_LON + lon_offsets
-
     dists = np.sqrt(lat_offsets ** 2 + lon_offsets ** 2)
     urban_density = 1 - (dists / dists.max())
 
-    # Base Noise
-    base_noise = np.clip(urban_density * 60 + np.random.normal(0, 5, n_points), 30, 70)
+    # Remove seed for noise generation so it "shimmers" slightly (feels alive)
+    np.random.seed(None)
 
-    final_noise = base_noise.copy()
-    scenario = "Normal"
+    # --- 24H NOISE CURVE LOGIC ---
+    # Base level starts low
+    time_factor = 0
+    scenario = "Quiet"
 
-    # --- TIME & DATE LOGIC ---
+    if is_weekend:
+        # Weekend: Quiet morning, steady rise till midnight
+        if 0 <= hour < 8:
+            time_factor = -10
+            scenario = "🌙 Sleeping City"
+        elif 8 <= hour < 12:
+            time_factor = 5
+            scenario = "☕ Slow Morning"
+        elif 12 <= hour < 18:
+            time_factor = 20
+            scenario = "🛍️ Shopping & Leisure"
+        elif 18 <= hour <= 23:
+            time_factor = 25
+            scenario = "🎉 Evening/Nightlife"
+    else:
+        # Weekday: Twin Peaks (Morning & Evening Rush)
+        if 0 <= hour < 6:
+            time_factor = -15
+            scenario = "🌙 Deep Night"
+        elif 6 <= hour < 9:
+            time_factor = 25  # Morning Rush
+            scenario = "🚗 Morning Rush Hour"
+        elif 9 <= hour < 16:
+            time_factor = 15  # Work hours
+            scenario = "💼 Working Hours"
+        elif 16 <= hour < 19:
+            time_factor = 25  # Evening Rush
+            scenario = "🚗 Evening Rush Hour"
+        elif 19 <= hour <= 23:
+            time_factor = 5
+            scenario = "🏠 Evening Relaxation"
 
-    if hour == 9:
-        if is_weekend:
-            final_noise -= 5  # Weekend mornings are quieter
-            scenario = "☕ Lazy Weekend Morning"
-        else:
-            final_noise += 15
-            scenario = "🚗 Weekday Morning Rush Hour"
+    # Calculate final noise
+    # Base + Urban Density Impact + Time Factor + Random Fluctuation
+    noise_values = 45 + (urban_density * 15) + time_factor + np.random.normal(0, 3, n_points)
 
-    elif hour == 12:
-        if is_weekend:
-            final_noise += (urban_density * 25)  # Weekends are louder in city center (shopping/tourists)
-            scenario = "🛍️ Weekend Shopping Peak"
-        else:
-            final_noise += (urban_density * 20)
-            scenario = "🍽️ Weekday Lunch Bustle"
-
-    elif hour == 15:
-        final_noise += 10
-        scenario = "🚌 Afternoon Activity"
-
-    elif hour == 0 or hour == 24:
-        final_noise -= 20
-        # Nightlife hotspots (more active on Friday/Saturday nights)
-        # date_obj.weekday() 4=Friday, 5=Saturday
-        if date_obj.weekday() in [4, 5]:
-            nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.10), replace=False)  # More bars active
-            final_noise[nightlife_indices] = 90
-            scenario = "🎉 Weekend Nightlife"
-        else:
-            nightlife_indices = np.random.choice(n_points, size=int(n_points * 0.02), replace=False)
-            final_noise[nightlife_indices] = 80
-            scenario = "🌙 Weekday Midnight (Quiet)"
-
-    final_noise = np.clip(final_noise, 30, 95)
+    # Add specific hotspots based on hour
+    if hour > 20:  # Night clubs active
+        noise_values[:10] += 30  # First 10 points are "clubs"
+    if 7 < hour < 18:  # Traffic hubs active
+        noise_values[10:50] += 15
 
     return pd.DataFrame({
         "latitude": lats,
         "longitude": lons,
-        "noise_db": final_noise
+        "noise_db": np.clip(noise_values, 30, 95)
     }), scenario
-
 # ---------------------------------------------------------
 #  PLANNER: Tree Priority Map (Fixed Number Formatting)
 # ---------------------------------------------------------
