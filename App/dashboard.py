@@ -656,7 +656,7 @@ def landing_page():
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
+    sp1, col1, col2, col3, sp2 = st.columns([1, 3, 3, 3, 1])
 
     with col1:
         st.markdown('<div class="role-card role-card-resident">', unsafe_allow_html=True)
