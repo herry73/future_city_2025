@@ -819,18 +819,27 @@ def simulate_city_grid(n_points=200):
 
 
 # ---------------------------------------------------------
-#  PLANNER: Tree Priority Map (Fixed Base Map)
+#  PLANNER: Tree Priority Map (Fixed Number Formatting)
 # ---------------------------------------------------------
 
 def planner_tree_map_page(df):
     st.subheader("🗺️ Heilbronn Green Intervention Map")
 
-    # --- 1. Generate Data for Heilbronn (Center Locked) ---
-    # 模拟海尔布隆市中心的数据点
+    # --- 1. Generate Data ---
     map_data = simulate_city_grid(n_points=300)
 
+    # 【关键修复步骤 1】: 在数据层面进行四舍五入
+    # 直接把 DataFrame 里的数字处理成你想要的小数位数
+    map_data = map_data.round({
+        "latitude": 4,  # 经纬度保留4位
+        "longitude": 4,
+        "heat_level": 1,  # 压力值保留1位
+        "air_quality_gap": 1,
+        "noise_level": 1,
+        "tree_priority": 0  # 优先级取整数
+    })
+
     # --- 2. Define Color Logic ---
-    # Green (Safe) -> Yellow (Warning) -> Red (Critical)
     def get_color(score):
         if score < 50:
             return [0, 255, 128, 160]  # Greenish
@@ -852,17 +861,16 @@ def planner_tree_map_page(df):
         "ScatterplotLayer",
         map_data,
         get_position=["longitude", "latitude"],
-        get_radius=120,  # 稍微调小一点半径，让点更清晰
+        get_radius=120,
         get_fill_color="color",
         pickable=True,
         opacity=0.9,
         stroked=True,
-        get_line_color=[255, 255, 255],  # 给圆点加个白边，更像第一张图的风格
+        get_line_color=[255, 255, 255],
         line_width_min_pixels=1,
         filled=True,
     )
 
-    # Initial View: Focused on Heilbronn City Center
     view_state = pdk.ViewState(
         latitude=49.1427,
         longitude=9.2109,
@@ -871,33 +879,36 @@ def planner_tree_map_page(df):
         bearing=0
     )
 
-    # Tooltip
+    # 【关键修复步骤 2】: HTML 里只写纯变量名
+    # 也就是去掉所有的 :.0f 或 :.4f
     tooltip = {
-        "html": "<b>📍 Zone Priority: {tree_priority:.0f}</b><br/>"
-                "🌡 Heat Stress: {heat_level:.1f}<br/>"
-                "🌫 Air Quality: {air_quality_gap:.1f}<br/>"
-                "📢 Noise Level: {noise_level:.1f}",
+        "html": "<b>📍 Zone Priority: {tree_priority}</b><br/>"
+                "🌡 Heat Stress: {heat_level}<br/>"
+                "🌫 Air Quality: {air_quality_gap}<br/>"
+                "📢 Noise Level: {noise_level}<br/>"
+                "<hr style='margin: 5px 0; border: 0; border-top: 1px solid #666;'/>"
+                "🌐 Lat: {latitude}<br/>"
+                "🌐 Lon: {longitude}",
         "style": {
             "backgroundColor": "#1f2937",
             "color": "white",
             "fontSize": "12px",
-            "padding": "10px"
+            "padding": "10px",
+            "zIndex": "9999"
         }
     }
 
-    # --- 4. Render Map with CARTO Style (No Token Needed) ---
     r = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
         tooltip=tooltip,
-        # 关键修改在这里：使用 'carto' 提供商和 'dark' 样式
         map_provider="carto",
         map_style="dark",
     )
 
     st.pydeck_chart(r)
 
-    st.success("💡 **Map Loaded:** This view uses the OpenStreetMap/CARTO dark theme, which requires no API token.")
+    st.success("💡 **Map Updated:** Coordinates and metrics are now displayed correctly.")
 # =====================================================================
 #  PART 6 — MAIN APP ASSEMBLY (patched for rerun & clean routing)
 # =====================================================================
