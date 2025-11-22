@@ -386,7 +386,91 @@ def map_layer(df, lat_col="latitude", lon_col="longitude", value_col=None, color
 def load_data():
     """Loads and merges all CSVs from data/processed."""
 
-    air = pd.read_csv("data/processed/air_quality.csv", parse_dates=["timestamp"])
+    # --- ORIGINAL DAILY DATA ---
+    air = pd.read_csv("data/processed/air_quality.csv")
+
+    # Parse timestamps
+    air["timestamp"] = pd.to_datetime(
+        air["timestamp"],
+        format="%m/%d/%Y %H:%M",
+        errors="coerce"
+    )
+
+    # ===============================================================
+    #  SYNTHETIC HOURLY EXPANSION (24x per day)
+    # ===============================================================
+
+    hourly_rows = []
+
+    for _, row in air.iterrows():
+        base_date = row["timestamp"].date()
+
+        for hour in range(24):
+            ts = pd.Timestamp(year=base_date.year,
+                              month=base_date.month,
+                              day=base_date.day,
+                              hour=hour)
+
+            # Generate synthetic realistic hourly variations
+            # -----------------------------------------------------
+            hour_factor = np.sin((hour / 24) * 2 * np.pi)  # −1 to +1
+
+            no2 = row["no2_ugm3"] + hour_factor * 8  # peak morning/evening
+            pm10 = row["pm10_ugm3"] + np.random.randn() * 1.2
+            pm25 = row["pm2_5_ugm3"] + hour_factor * 4
+            o3 = row["o3_ugm3"] + np.cos((hour / 24) * 2 * np.pi) * 6
+
+            temp = (
+                    row["temperature_degC"]
+                    + 6 * np.sin((hour - 6) / 24 * 2 * np.pi)
+                    + np.random.randn() * 0.4
+            )
+
+            humid = (
+                    row["humidity_percent"]
+                    - 10 * np.sin((hour - 6) / 24 * 2 * np.pi)
+                    + np.random.randn() * 1
+            )
+
+            noise_level = (
+                    45
+                    + 12 * (hour in [7, 8, 9, 17, 18])  # traffic peak
+                    + 8 * (hour >= 22 or hour <= 2)  # nightlife
+                    + np.random.randn() * 3
+            )
+
+            hourly_rows.append({
+                "timestamp": ts,
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "no2_ugm3": max(no2, 0),
+                "pm10_ugm3": max(pm10, 0),
+                "pm2_5_ugm3": max(pm25, 0),
+                "o3_ugm3": max(o3, 0),
+                "temperature": temp,
+                "humidity": humid,
+                "noise": noise_level,
+                "is_anomaly": 0
+            })
+
+    # Convert to hourly dataframe
+    air = pd.DataFrame(hourly_rows)
+    # ===============================================================
+
+    # FORCE correct datetime parsing (CRITICAL FIX)
+    air["timestamp"] = pd.to_datetime(
+        air["timestamp"],
+        format="%m/%d/%Y %H:%M",
+        errors="coerce"
+    )
+    # normalize column names (CRITICAL FIX)
+    air = air.rename(columns={
+        "NO2": "no2_ugm3",
+        "PM25": "pm2_5_ugm3",
+        "PM10": "pm10_ugm3",
+        "O3": "o3_ugm3"
+    })
+
     weather = pd.read_csv("data/processed/weather.csv", parse_dates=["timestamp"])
     noise = pd.read_csv("data/processed/noise.csv", parse_dates=["timestamp"])
 
@@ -405,13 +489,105 @@ def load_data():
            .sort_values("timestamp")
     )
 
+    # remove duplicated columns
     df = df.loc[:, ~df.columns.duplicated()]
+
+    # ensure timestamp is parsed as real datetime
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+
+    # remove any rows where timestamp is missing
+    df = df.dropna(subset=["timestamp"])
+
+    # set index
     df = df.set_index("timestamp")
+
+    # sort ascending (important!)
+    df = df.sort_index()
 
     # Ensure numeric
     df = df.apply(pd.to_numeric, errors="ignore")
 
     return df
+
+# ---------------------------------------------------------
+#  PLANNER: GREEN WALK – Best Time to Go Outside
+# ---------------------------------------------------------
+
+def planner_green_walk_page(df):
+
+    st.subheader("🌿 Green Walk — Best Time to Go Outside")
+
+    st.markdown(
+        "Choose a date to see the full-day air quality curve and get a recommendation "
+        "on when it’s healthiest to go outside."
+    )
+
+    # --- Date Selector ---
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        selected_date = st.date_input(
+            "Select Date",
+            value=df.index.min().date(),
+            min_value=df.index.min().date(),
+            max_value=df.index.max().date(),
+        )
+
+    # Filter data for selected date
+    # Make both sides comparable by converting to Python datetime.date
+    df_day = df[[ts.date() == selected_date for ts in df.index]]
+
+    if df_day.empty:
+        st.warning("No data available for this date.")
+        return
+
+    # Compute health score
+    df_day_health = add_health_score(df_day.copy())
+
+    # Interactive graph
+    st.markdown("### 📈 Air Quality Throughout the Day")
+
+    st.line_chart(
+        df_day_health["health_score"],
+        height=250,
+    )
+
+    # --- Analysis Section ---
+    st.markdown("### 🌤 Green Walk Recommendation")
+
+    avg_score = df_day_health["health_score"].mean()
+    best_hour = df_day_health["health_score"].idxmax().strftime("%H:%M")
+    worst_hour = df_day_health["health_score"].idxmin().strftime("%H:%M")
+
+    # Reasoning logic
+    reasons = []
+    if df_day["no2_ugm3"].mean() < df["no2_ugm3"].quantile(0.4):
+        reasons.append("low NO₂ levels")
+    if df_day["pm2_5_ugm3"].mean() < df["pm2_5_ugm3"].quantile(0.4):
+        reasons.append("clean PM2.5 levels")
+    if df_day["o3_ugm3"].mean() < df["o3_ugm3"].quantile(0.4):
+        reasons.append("low ozone concentration")
+
+    if not reasons:
+        reasons.append("conditions are moderate, but acceptable")
+
+    st.metric(
+        "Best Time to Go Out",
+        best_hour,
+        delta="Based on lowest pollution",
+    )
+    st.metric(
+        "Worst Time",
+        worst_hour,
+        delta="Based on highest pollution",
+    )
+
+    st.success(
+        f"⭐ **Recommendation:** Average score: {avg_score:.1f}/100 — "
+        f"You can go outside! Reasons: {', '.join(reasons)}."
+        if avg_score > 60
+        else f"⚠️ **Warning:** Score only {avg_score:.1f}. Avoid long outdoor activities. "
+             f"Main issues: {', '.join(reasons)}."
+    )
 
 # =====================================================================
 #  PART 2 — LANDING PAGE + ROLE SELECTION
@@ -509,6 +685,8 @@ def landing_page():
         "</p>",
         unsafe_allow_html=True,
     )
+
+
 
 # =====================================================================
 #  PART 3 — RESIDENT DASHBOARD (pastel theme)
@@ -1095,7 +1273,8 @@ def planner_dashboard(df):
             "Tree Priority & Chronic Stress",
             "Sensor Relationship Explorer",
             "Tree Priority Map",
-            "Noise Time-Travel Map"
+            "Noise Time-Travel Map",
+            "Green Walk – Best Time"
         ],
         key="planner_nav"
     )
@@ -1112,6 +1291,9 @@ def planner_dashboard(df):
         planner_tree_map_page(df)
     elif page == "Noise Time-Travel Map":
         planner_noise_time_travel_page()
+    elif page == "Green Walk – Best Time":
+        planner_green_walk_page(df)
+
 
 # ---------------------------------------------------------
 #  PLANNER: Overview Page
