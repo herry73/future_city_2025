@@ -1,0 +1,142 @@
+/* =====================================================================
+   LANDING PAGE — TITLES
+===================================================================== */
+
+.landing-title {
+    text-align: center;
+    font-size: 46px;
+    margin-top: 25px;
+    font-weight: 800;
+    color: #F9FAFB;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+
+.landing-subtitle {
+    text-align: center;
+    font-size: 18px;
+    opacity: 0.85;
+    margin-top: -8px;
+    color: #E5E7EB;
+}
+
+/* =====================================================================
+   ROLE CARD WRAPPER (needed for invisible button overlay)
+===================================================================== */
+
+.role-wrapper {
+    position: relative;
+    margin: 0 6px;
+}
+
+.role-wrapper button {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    z-index: 2;
+}
+
+/* =====================================================================
+   ROLE CARDS (visual part)
+===================================================================== */
+
+.role-card-big {
+    padding: 32px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    background: linear-gradient(145deg, #111827, #0f172a);
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+    position: relative;
+    z-index: 1;
+}
+
+/* Hover glow */
+.role-card-big:hover {
+    transform: translateY(-6px) scale(1.03);
+    border-color: #4C84E0;
+    box-shadow:
+        0 10px 25px rgba(76,132,224,0.35),
+        inset 0 0 12px rgba(76,132,224,0.25);
+}
+
+/* CONTROLLER (dark neon) */
+.role-card-big.dark {
+    background: linear-gradient(145deg, #1A2238, #161d2e);
+    border-color: rgba(255,255,255,0.12);
+}
+
+.role-card-big.dark:hover {
+    border-color: #FF3B8D;
+    box-shadow:
+        0 10px 28px rgba(255,59,141,0.35),
+        inset 0 0 12px rgba(255,59,141,0.25);
+}
+
+/* PLANNER (green) */
+.role-card-big.green {
+    background: linear-gradient(135deg, #E8F5E9, #DBF3DE);
+    border: 1px solid #C8E6C9;
+    color: #1B5E20;
+}
+
+.role-card-big.green:hover {
+    box-shadow:
+        0 10px 25px rgba(102,187,106,0.35),
+        inset 0 0 12px rgba(0,128,0,0.15);
+}
+
+/* =====================================================================
+   CARD CONTENT
+===================================================================== */
+
+.role-icon {
+    font-size: 56px;
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.role-title {
+    font-weight: 700;
+    font-size: 24px;
+    text-align: center;
+    margin-top: 12px;
+}
+
+.role-desc {
+    font-size: 14px;
+    opacity: 0.9;
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.5;
+}
+
+/* =====================================================================
+   FOOTER NOTE
+===================================================================== */
+
+.footer-note {
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.55;
+    margin-bottom: 25px;
+    color: #E5E7EB;
+}
+
+/* =====================================================================
+   RESPONSIVENESS
+===================================================================== */
+
+@media (max-width: 900px) {
+    .role-wrapper {
+        margin-bottom: 20px;
+    }
+    .landing-title {
+        font-size: 36px;
+    }
+}

@@ -12,6 +12,25 @@ from datetime import datetime, date
 import plotly.express as px
 import plotly.graph_objects as go
 
+# =============================================================
+# Load external CSS (global styles)
+# =============================================================
+
+def load_local_css(file_path: str):
+    """Loads a local CSS file into the Streamlit app."""
+    try:
+        with open(file_path) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning(f"⚠️ CSS file not found: {file_path}")
+
+# Auto-detect correct relative path
+css_path = "App/styles.css" if "App" in __file__ else "styles.css"
+load_local_css(css_path)
+
+
+
+
 # Import backend analysis functions
 from features import (
     add_health_score,
@@ -605,85 +624,101 @@ def init_session_state():
         st.session_state.planner_page = "Overview"
 
 def role_card(title, emoji, description, role_key, bg_color, text_color):
-    """Clickable card used on landing page."""
+    """Clickable big role card without tiny Streamlit button."""
 
-    if st.button(f"{emoji}  {title}", key=f"role_btn_{role_key}", use_container_width=True):
-        st.session_state.role = role_key
-        st.rerun()
+    card_html = f"""
+    <div class="role-card" onclick="selectRole('{role_key}')"
+         style="
+             cursor: pointer;
+             background-color:{bg_color};
+             color:{text_color};
+             padding:25px;
+             border-radius:15px;
+             min-height:220px;
+             display:flex;
+             flex-direction:column;
+             justify-content:center;
+             align-items:center;
+             box-shadow:0 4px 12px rgba(0,0,0,0.25);
+             border:2px solid rgba(255,255,255,0.05);
+             transition:0.2s;
+         ">
+         <div style="font-size:60px; margin-bottom:10px;">{emoji}</div>
+         <h2 style="margin:0; padding:0; font-weight:700;">{title}</h2>
+         <p style="margin-top:10px; opacity:0.85; text-align:center;">
+             {description}
+         </p>
+    </div>
+    """
 
-    st.markdown(
-        f"""
-        <div style="
-            background-color:{bg_color};
-            color:{text_color};
-            padding:10px 14px;
-            border-radius:10px;
-            font-size:13px;
-            margin-top:4px;
-            min-height:60px;
-        ">
-            {description}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown(card_html, unsafe_allow_html=True)
+
+
 
 def landing_page():
     """Landing screen where the user chooses their role."""
     init_session_state()
 
+    # ----- TITLE -----
     st.markdown(
-        "<h1 style='text-align:center; margin-bottom:0;'>🌆 Future City Intelligence</h1>",
-        unsafe_allow_html=True,
+        '<div class="landing-title">🌆 Future City Intelligence</div>',
+        unsafe_allow_html=True
     )
     st.markdown(
-        "<p style='text-align:center; font-size:18px; margin-top:4px;'>"
-        "Choose your perspective to explore Heilbronn's environment."
-        "</p>",
-        unsafe_allow_html=True,
+        '<div class="landing-subtitle">Choose your perspective to explore Heilbronn\'s environment.</div>',
+        unsafe_allow_html=True
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
 
+    # ------------------------------------------------------
+    # RESIDENT CARD
+    # ------------------------------------------------------
     with col1:
-        role_card(
-            title="Resident",
-            emoji="👤",
-            description="Simple, friendly insights about today's air, heat and noise.",
-            role_key="resident",
-            bg_color=PASTEL['card'],
-            text_color=PASTEL['text'],
-        )
+        st.markdown('<div class="role-card role-card-resident">', unsafe_allow_html=True)
+        if st.button(
+            "👤\n\nResident\n\nSimple, friendly insights about today's air, heat and noise.",
+            key="resident_card"
+        ):
+            st.session_state.role = "resident"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    # ------------------------------------------------------
+    # CONTROLLER CARD
+    # ------------------------------------------------------
     with col2:
-        role_card(
-            title="Smart City Controller",
-            emoji="🚨",
-            description="Live alerts, air-risk episodes and noise disturbances.",
-            role_key="controller",
-            bg_color=DARK_NEON['card'],
-            text_color=DARK_NEON['text'],
-        )
+        st.markdown('<div class="role-card role-card-controller">', unsafe_allow_html=True)
+        if st.button(
+            "🚨\n\nSmart City Controller\n\nLive alerts, air-risk episodes and noise disturbances.",
+            key="controller_card"
+        ):
+            st.session_state.role = "controller"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    # ------------------------------------------------------
+    # PLANNER CARD
+    # ------------------------------------------------------
     with col3:
-        role_card(
-            title="City Planner",
-            emoji="🏙️",
-            description="Long-term trends, correlations and tree priority hotspots.",
-            role_key="planner",
-            bg_color=PLANNER['card'],
-            text_color=PLANNER['text'],
-        )
+        st.markdown('<div class="role-card role-card-planner">', unsafe_allow_html=True)
+        if st.button(
+            "🏙️\n\nCity Planner\n\nLong-term trends, correlations and tree priority hotspots.",
+            key="planner_card"
+        ):
+            st.session_state.role = "planner"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    # ------------------------------------------------------
+    # FOOTER
+    # ------------------------------------------------------
     st.markdown("<br><hr>", unsafe_allow_html=True)
-
     st.markdown(
-        "<p style='text-align:center; font-size:13px; opacity:0.7;'>"
-        "You can always return here using the sidebar."
-        "</p>",
-        unsafe_allow_html=True,
+        '<div class="footer-note">You can always return here using the sidebar.</div>',
+        unsafe_allow_html=True
     )
 
 
