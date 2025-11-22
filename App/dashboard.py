@@ -25,30 +25,32 @@ from features import (
 # ---------------------------------------------------------
 
 PASTEL = {
-    "bg": "#F7F9FC",
-    "text": "#3A506B",
-    "primary": "#6BB6FF",
-    "card": "#FFFFFF",
-    "accent": "#8EC6FF"
+    "bg": "#F2F6FF",        # soft blue pastel, readable
+    "text": "#1F2A44",      # deep navy for contrast
+    "card": "#FFFFFF",      # white cards
+    "accent": "#6BA8FF",    # soft blue accents
+    "primary": "#4C84E0",   # stronger blue for graphs
 }
+
 
 DARK_NEON = {
-    "bg": "#0D1117",
-    "text": "#C9D1D9",
-    "primary": "#58A6FF",
-    "card": "#161B22",
-    "accent": "#1F6FEB",
-    "danger": "#F85149",
+    "bg": "#0A0F1F",
+    "text": "#F5F7FA",
+    "card": "#131A2B",
+    "accent": "#FF3B8D",
+    "primary": "#40C9FF",
+    "danger": "#FF5577",
 }
 
+
 PLANNER = {
-    "bg": "#FFFFFF",
-    "text": "#1F2937",
-    "primary": "#059669",  # emerald green
-    "card": "#FFFFFF",
-    "accent": "#10B981",
-    "table_header": "#D1FAE5",
+    "bg": "#E8F5E9",        # medium soft green
+    "text": "#1B5E20",      # deep green for contrast
+    "card": "#FFFFFF",      # clean white cards
+    "accent": "#66BB6A",    # medium green accents
+    "primary": "#388E3C",   # darker forest green
 }
+
 
 
 # ---------------------------------------------------------
@@ -60,15 +62,23 @@ def apply_resident_theme():
     <style>
         body {{
             background-color: {PASTEL['bg']} !important;
+            color: {PASTEL['text']} !important;
         }}
-        .stApp {{
-            background-color: {PASTEL['bg']} !important;
+        .stMetricValue, .stMetricLabel {{
+            color: {PASTEL['text']} !important;
         }}
-        h1, h2, h3, h4, h5, h6, p {{
+        .stButton>button {{
+            background-color: {PASTEL['accent']} !important;
+            color: white !important;
+            border-radius: 10px;
+            border: none;
+        }}
+        .stTab {{
             color: {PASTEL['text']} !important;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 def apply_controller_theme():
@@ -76,22 +86,20 @@ def apply_controller_theme():
     <style>
         body {{
             background-color: {DARK_NEON['bg']} !important;
-        }}
-        .stApp {{
-            background-color: {DARK_NEON['bg']} !important;
             color: {DARK_NEON['text']} !important;
         }}
-        h1, h2, h3, h4, h5, h6, p {{
+        .stMetricValue, .stMetricLabel {{
             color: {DARK_NEON['text']} !important;
         }}
-        .metric-container {{
-            background-color: {DARK_NEON['card']} !important;
-            padding: 10px;
+        .stButton>button {{
+            background-color: {DARK_NEON['accent']} !important;
+            color: white !important;
             border-radius: 10px;
-            margin-bottom: 10px;
+            border: none;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 def apply_planner_theme():
@@ -99,15 +107,20 @@ def apply_planner_theme():
     <style>
         body {{
             background-color: {PLANNER['bg']} !important;
-        }}
-        .stApp {{
-            background-color: {PLANNER['bg']} !important;
-        }}
-        h1, h2, h3 {{
             color: {PLANNER['text']} !important;
+        }}
+        .stMetricValue, .stMetricLabel {{
+            color: {PLANNER['text']} !important;
+        }}
+        .stButton>button {{
+            background-color: {PLANNER['accent']} !important;
+            color: white !important;
+            border-radius: 10px;
+            border: none;
         }}
     </style>
     """, unsafe_allow_html=True)
+
 
 
 # ---------------------------------------------------------
