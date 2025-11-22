@@ -317,3 +317,86 @@ def analyze_sensor_relationships(
         out["o3_sunlight_factor"] = float(np.nan)
 
     return out
+
+
+# -----------------------------------------------------------------------------
+# FEATURE 4: HEATWAVE EARLY WARNING SYSTEM
+# -----------------------------------------------------------------------------
+def detect_heatwaves(
+        df: pd.DataFrame,
+        temp_col: str = "temperature",
+        o3_col: str = "o3_ugm3",
+        temp_thresh: float = 30.0,  # 30°C is a standard heatwave trigger
+        o3_thresh: float = 120.0  # 120 µg/m³ is the WHO limit for 8h mean
+) -> pd.DataFrame:
+    """
+    Detects 'Combined Climate Risk': High Heat + High Ozone.
+    Why? Sunlight + Heat creates Ozone (Smog), which destroys lungs.
+    This is worse than just heat alone.
+    """
+    _require_columns(df, (temp_col, o3_col))
+    df = df.copy()
+
+    # Define the conditions
+    is_hot = df[temp_col] >= temp_thresh
+    is_smoggy = df[o3_col] >= o3_thresh
+
+    # Create Alert Levels
+    # 0 = Normal
+    # 1 = Heat Warning (Just Hot)
+    # 2 = CRITICAL SMOG-HEAT ALERT (Hot + Toxic Air)
+
+    conditions = [
+        (is_hot & is_smoggy),
+        (is_hot & ~is_smoggy)
+    ]
+    choices = ["Critical Ozone-Heat", "Heat Warning"]
+
+    df["heatwave_status"] = np.select(conditions, choices, default="Normal")
+
+    return df
+
+
+# -----------------------------------------------------------------------------
+# FEATURE 5: EMISSION ANOMALY SOURCE DETECTOR
+# -----------------------------------------------------------------------------
+def classify_emission_anomalies(
+        df: pd.DataFrame,
+        no2_col: str = "no2_ugm3",
+        noise_col: str = "noise",
+        anomaly_col: str = "is_anomaly",
+        noise_traffic_thresh: float = 55.0  # Decibels indicating active traffic
+) -> pd.DataFrame:
+    """
+    Classifies anomalies into 'Traffic' vs 'Industrial/Static'.
+    Logic:
+      - High NO2 + High Noise = Traffic (Cars make noise and smoke).
+      - High NO2 + Low Noise  = Industrial/Heating (Smoke without noise).
+    """
+    # Note: 'is_anomaly' comes from the Air Quality dataset
+    _require_columns(df, (no2_col, noise_col))
+
+    if anomaly_col not in df.columns:
+        # If no anomaly column, create a simple threshold-based one
+        df[anomaly_col] = (df[no2_col] > df[no2_col].quantile(0.95)).astype(int)
+
+    df = df.copy()
+
+    # Only look at rows that ARE anomalies
+    anoms = df[anomaly_col] == 1
+
+    high_noise = df[noise_col] > noise_traffic_thresh
+
+    # Vectorized classification
+    # If Anomaly AND High Noise -> Traffic
+    # If Anomaly AND Low Noise -> Static Source
+
+    conds = [
+        (anoms & high_noise),
+        (anoms & ~high_noise)
+    ]
+    labels = ["Traffic Emission", "Static/Industrial Emission"]
+
+    df["emission_source"] = np.select(conds, labels, default="Normal")
+
+    return df
