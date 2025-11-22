@@ -67,6 +67,11 @@ def apply_resident_theme():
         font-weight: 600;
     }}
 
+    /* TOP DARK BAR FIX — make the header lighter */
+    [data-testid="stHeader"] {{
+        background-color: #EAF0FF !important;
+    }}
+
     /* MAIN BACKGROUND */
     [data-testid="stAppViewContainer"] {{
         background-color: {PASTEL['bg']} !important;
@@ -128,6 +133,7 @@ def apply_resident_theme():
 
 
 
+
 def apply_controller_theme():
     st.markdown(f"""
     <style>
@@ -141,11 +147,18 @@ def apply_controller_theme():
         font-weight: 600;
     }}
 
+    /* TOP BAR FIX — make controller header dark blue instead of black */
+    [data-testid="stHeader"] {{
+        background-color: #1A2238 !important;   /* slightly lighter than full black */
+    }}
+
+    /* MAIN BACKGROUND */
     [data-testid="stAppViewContainer"] {{
         background-color: {DARK_NEON['bg']} !important;
         color: {DARK_NEON['text']} !important;
     }}
 
+    /* SIDEBAR */
     [data-testid="stSidebar"] {{
         background-color: #111624 !important;
     }}
@@ -153,10 +166,12 @@ def apply_controller_theme():
         color: {DARK_NEON['text']} !important;
     }}
 
+    /* HEADINGS */
     h1, h2, h3, h4, h5, h6 {{
         color: {DARK_NEON['text']} !important;
     }}
 
+    /* INPUT WIDGETS */
     .stTextInput input, 
     .stDateInput input, 
     .stSelectbox div[role='combobox'] {{
@@ -166,6 +181,7 @@ def apply_controller_theme():
         border: 1px solid #33415C !important;
     }}
 
+    /* BUTTONS */
     .stButton>button {{
         background-color: {DARK_NEON['accent']} !important;
         color: white !important;
@@ -174,6 +190,7 @@ def apply_controller_theme():
         font-weight: 600 !important;
     }}
 
+    /* METRIC CARDS */
     [data-testid="stMetric"] {{
         background-color: #1A2238 !important;
         padding: 15px;
@@ -186,6 +203,7 @@ def apply_controller_theme():
 
     </style>
     """, unsafe_allow_html=True)
+
 
 
 def apply_planner_theme():
@@ -201,11 +219,18 @@ def apply_planner_theme():
         font-weight: 600;
     }}
 
+    /* TOP BAR FIX — lighter soft green instead of black */
+    [data-testid="stHeader"] {{
+        background-color: #DFF3E3 !important;   /* Light eco pastel green */
+    }}
+
+    /* MAIN BACKGROUND */
     [data-testid="stAppViewContainer"] {{
         background-color: {PLANNER['bg']} !important;
         color: {PLANNER['text']} !important;
     }}
 
+    /* SIDEBAR */
     [data-testid="stSidebar"] {{
         background-color: #F1F8F4 !important;
     }}
@@ -213,11 +238,13 @@ def apply_planner_theme():
         color: {PLANNER['text']} !important;
     }}
 
+    /* HEADERS */
     h1, h2, h3, h4, h5, h6 {{
         color: {PLANNER['text']} !important;
         font-weight: 700 !important;
     }}
 
+    /* INPUT WIDGETS */
     .stTextInput input, 
     .stDateInput input, 
     .stSelectbox div[role='combobox'] {{
@@ -227,11 +254,13 @@ def apply_planner_theme():
         border: 1px solid #A5D6A7 !important;
     }}
 
+    /* TABLES */
     .stDataFrame table, .stDataFrame th, .stDataFrame td {{
         color: {PLANNER['text']} !important;
         background-color: white !important;
     }}
 
+    /* BUTTONS */
     .stButton>button {{
         background-color: {PLANNER['accent']} !important;
         color: white !important;
@@ -240,6 +269,7 @@ def apply_planner_theme():
         font-weight: 600 !important;
     }}
 
+    /* METRIC CARDS */
     [data-testid="stMetric"] {{
         background-color: white !important;
         padding: 15px;
