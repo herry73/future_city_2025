@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt  # kept in case you still use it somewhere
 import pydeck as pdk
 import streamlit as st
 from PIL import Image
+import os
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -435,18 +436,14 @@ def map_layer(df, lat_col="latitude", lon_col="longitude", value_col=None, color
 # ---------------------------------------------------------
 #  UNIFIED DATA LOADER  (with synthetic hourly expansion)
 # ---------------------------------------------------------
-
-@st.cache_data
 def load_data():
-    """Loads and merges all CSVs from data/processed and up-samples to hourly."""
+    base_dir = os.path.dirname(__file__)
+    path = os.path.join(base_dir, "..", "data", "clean_data.csv")
+    df = pd.read_csv(path, parse_dates=["timestamp"])
+    df = df.set_index("timestamp").sort_index()
+    df = df.apply(pd.to_numeric, errors="ignore")
+    return df
 
-    air = pd.read_csv("data/processed/air_quality.csv")
-
-    air["timestamp"] = pd.to_datetime(
-        air["timestamp"],
-        format="%m/%d/%Y %H:%M",
-        errors="coerce",
-    )
 
     hourly_rows = []
     for _, row in air.iterrows():
