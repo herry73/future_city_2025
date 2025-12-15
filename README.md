@@ -1,3 +1,7 @@
+Quick start (Streamlit)
+Install deps inside the venv if needed: pip install streamlit pandas.
+Run the app: streamlit run dashboard.py.
+Put your CSV files in data/ or upload one from the sidebar to see an instant preview and charts.
 # 🌆 Urban Pulse: Smart City Environmental Decision Engine
 
 A data-driven analytics platform designed for urban planners to monitor environmental stressors and make automated, evidence-based decisions for city improvements.
