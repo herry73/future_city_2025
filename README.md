@@ -1,24 +1,50 @@
-Quick start (Streamlit)
-Install deps inside the venv if needed: pip install streamlit pandas.
-Run the app: streamlit run dashboard.py.
-Put your CSV files in data/ or upload one from the sidebar to see an instant preview and charts.
-# 🌆 Urban Pulse: Smart City Environmental Decision Engine
+# Urban Pulse - Smart City Environmental Decision Engine
 
-A data-driven analytics platform designed for urban planners to monitor environmental stressors and make automated, evidence-based decisions for city improvements.
+Urban Pulse is a Streamlit analytics dashboard built for the Future City hackathon. It helps city planners, controllers, and residents explore environmental stress in Heilbronn using air-quality, weather, and noise data.
 
-## 🚀 Key Features
-- **Automated Anomaly Detection:** Vectorized algorithms (NumPy/Pandas) to detect "Air-Risk Episodes" and "Night Noise Disturbances" from live sensor streams.
-- **Decision Intelligence:** A **Tree Priority Index** algorithm that identifies optimal locations for urban greening by correlating chronic noise pollution with air quality data.
-- **Role-Based Analytics:** Custom views for Residents (Health Monitoring), Controllers (Anomaly tracking), and Planners (Future Strategy).
-- **Automated ETL Pipeline:** Robust data fetching from **Visual Crossing API** with automated data cleaning and standardization.
+![Future City dashboard running locally](docs/future-city-runtime.png)
 
-## 🛠️ Technical Stack
-- **Data Processing:** Python, Pandas (Time-series analysis), NumPy
-- **API Integration:** REST APIs (Weather & IoT Sensor data)
-- **Visualization:** Plotly Express, Streamlit Custom Layouts
-- **Architecture:** Feature-based modular structure (`features.py` logic separation)
+The screenshot above was captured from the local Streamlit dashboard running on `localhost`.
 
-## 💡 Practical Impact
-The system doesn't just show "that it's noisy"—it calculates **where** the noise is most critical and **recommends** specific interventions, such as where to plant trees to maximize pollution absorption and noise reduction.
+## Key Features
 
----
+- Role-based views for residents, smart city controllers, and city planners.
+- Vectorized detection of air-risk episodes and night-noise disturbances.
+- Tree Priority Index for identifying locations where green interventions can reduce environmental stress.
+- Long-term health-score trends, pollutant charts, correlation analysis, and map-based planning views.
+- Local data pipeline based on cleaned sensor data in `data/clean_data.csv`.
+
+## Tech Stack
+
+- Python
+- Streamlit
+- pandas and NumPy
+- Plotly and PyDeck
+- Matplotlib / Seaborn
+
+## Quick Start
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -r requirements.txt
+pip install plotly pydeck pillow
+streamlit run App\dashboard.py
+```
+
+Run from the repository root so the app can find `data/clean_data.csv` and the files under `App/`.
+
+## Repository Structure
+
+```text
+App/dashboard.py       Main Streamlit dashboard
+App/features.py        Health score, alert detection, and planning metrics
+App/styles.css         UI styling
+data/clean_data.csv    Cleaned local dataset used by the dashboard
+data/processed/        Generated map/icon assets
+```
+
+## Practical Impact
+
+The project turns environmental sensor streams into operational views: identifying bad-air and high-noise periods, summarizing long-term stress, and recommending where city greening interventions may matter most.

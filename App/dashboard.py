@@ -17,6 +17,19 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 
+
+def convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert numeric-looking columns while keeping text/date columns intact."""
+    converted = df.copy()
+    for name, col in converted.items():
+        if col.dtype != "object":
+            continue
+        numeric = pd.to_numeric(col, errors="coerce")
+        non_null = col.notna().sum()
+        if non_null and numeric.notna().sum() / non_null >= 0.8:
+            converted[name] = numeric
+    return converted
+
 # =============================================================
 # Load external CSS (global styles)
 # =============================================================
@@ -441,7 +454,7 @@ def load_data():
     path = os.path.join(base_dir, "..", "data", "clean_data.csv")
     df = pd.read_csv(path, parse_dates=["timestamp"])
     df = df.set_index("timestamp").sort_index()
-    df = df.apply(pd.to_numeric, errors="ignore")
+    df = convert_numeric_columns(df)
     return df
 
 
@@ -529,7 +542,7 @@ def load_data():
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df = df.dropna(subset=["timestamp"])
     df = df.set_index("timestamp").sort_index()
-    df = df.apply(pd.to_numeric, errors="ignore")
+    df = convert_numeric_columns(df)
 
     return df
 
